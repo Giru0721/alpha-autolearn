@@ -224,10 +224,35 @@ class AuthManager:
     def create_checkout_session(self, email: str, plan_key: str, success_url: str,
                                 cancel_url: str) -> str | None:
         """Stripe Checkout セッション作成"""
-        if not stripe.api_key:
+        # 実行時にキーを再取得（Streamlit Cloud Secrets対応）
+        api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+        if not api_key:
+            try:
+                import streamlit as st
+                api_key = st.secrets.get("STRIPE_SECRET_KEY", "")
+            except Exception:
+                pass
+        if not api_key:
+            return None
+        stripe.api_key = api_key
+
+        # 実行時にPrice IDを取得
+        price_ids = {
+            "pro": os.environ.get("STRIPE_PRO_PRICE_ID", ""),
+            "premium": os.environ.get("STRIPE_PREMIUM_PRICE_ID", ""),
+        }
+        try:
+            import streamlit as st
+            price_ids["pro"] = price_ids["pro"] or st.secrets.get("STRIPE_PRO_PRICE_ID", "")
+            price_ids["premium"] = price_ids["premium"] or st.secrets.get("STRIPE_PREMIUM_PRICE_ID", "")
+        except Exception:
+            pass
+
+        price_id = price_ids.get(plan_key, "")
+        if not price_id:
             return None
         plan = PLANS.get(plan_key)
-        if not plan or not plan.get("stripe_price_id"):
+        if not plan:
             return None
         user = self.get_user(email)
         if not user:
@@ -243,7 +268,7 @@ class AuthManager:
         session = stripe.checkout.Session.create(
             customer=customer_id,
             payment_method_types=["card"],
-            line_items=[{"price": plan["stripe_price_id"], "quantity": 1}],
+            line_items=[{"price": price_id, "quantity": 1}],
             mode="subscription",
             success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
             cancel_url=cancel_url,

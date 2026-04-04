@@ -134,13 +134,25 @@ def render_subscription_page():
             if not is_current and key != "free" and email and email != "guest":
                 if st.button(f"Upgrade to {plan_name}" if lang == "en" else f"{plan_name}にアップグレード",
                              key=f"upgrade_{key}", use_container_width=True):
-                    app_url = st.session_state.get("app_url", "http://localhost:8501")
-                    checkout_url = auth.create_checkout_session(email, key, app_url, app_url)
+                    try:
+                        # Streamlit Cloudの実URLを自動取得
+                        import streamlit.web.bootstrap as _bs
+                        app_url = st.session_state.get("app_url", "")
+                    except Exception:
+                        app_url = ""
+                    if not app_url:
+                        from urllib.parse import urlparse
+                        app_url = "https://" + st.context.headers.get("Host", "localhost:8501")
+                    try:
+                        checkout_url = auth.create_checkout_session(email, key, app_url, app_url)
+                    except Exception as e:
+                        st.error(f"Stripe error: {e}")
+                        checkout_url = None
                     if checkout_url:
-                        st.markdown(f'<a href="{checkout_url}" target="_blank">'
-                                    f'<button style="width:100%;padding:10px;background:#4da6ff;'
-                                    f'color:white;border:none;border-radius:8px;cursor:pointer;">'
-                                    f'Stripe</button></a>', unsafe_allow_html=True)
+                        st.markdown(
+                            f'<meta http-equiv="refresh" content="0;url={checkout_url}">',
+                            unsafe_allow_html=True)
+                        st.markdown(f"[Stripe決済ページへ]({checkout_url})")
                     else:
                         st.info("Demo mode" if lang == "en" else "Stripe未設定のため、デモモードです。")
                         auth._update_plan(email, key, expires_at="2099-12-31T23:59:59")
