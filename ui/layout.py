@@ -63,23 +63,34 @@ def render_sidebar():
         predict_clicked = st.button(TEXTS["predict_button"], type="primary", use_container_width=True)
         adjust_clicked = st.button(TEXTS["auto_adjust"], use_container_width=True)
         st.divider()
-        show_subscription = st.button("Plan" if lang == "en" else "プラン管理",
-                                       use_container_width=True)
+        if st.button("Plan" if lang == "en" else "プラン管理",
+                     use_container_width=True):
+            st.session_state["page"] = "subscription"
+            st.rerun()
         # Admin button
         user = st.session_state.get("user", {})
         if user.get("role") == "admin":
-            show_admin = st.button("Admin Panel" if lang == "en" else "管理者パネル",
-                                    use_container_width=True)
+            if st.button("Admin Panel" if lang == "en" else "管理者パネル",
+                         use_container_width=True):
+                st.session_state["page"] = "admin"
+                st.rerun()
+        if st.session_state.get("page") in ("subscription", "admin"):
+            if st.button("← " + ("Back" if lang == "en" else "戻る"),
+                         use_container_width=True):
+                st.session_state["page"] = "main"
+                st.rerun()
         st.divider()
         render_language_selector()
         if "last_updated" in st.session_state:
             st.caption(f"{TEXTS['last_updated']}: {st.session_state['last_updated']}")
     ticker = _normalize_ticker(raw_ticker)
+    page = st.session_state.get("page", "main")
     return {"ticker": ticker, "period": period, "horizon": horizon,
             "enable_fred": enable_fred, "enable_trends": enable_trends,
             "enable_news": enable_news, "predict_clicked": predict_clicked,
-            "adjust_clicked": adjust_clicked, "show_subscription": show_subscription,
-            "show_admin": show_admin}
+            "adjust_clicked": adjust_clicked,
+            "show_subscription": page == "subscription",
+            "show_admin": page == "admin"}
 
 
 def render_main_content(settings):

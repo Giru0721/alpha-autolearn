@@ -198,6 +198,7 @@ def render_user_badge():
     if st.button("Logout" if lang == "en" else "ログアウト",
                  key="logout_btn", use_container_width=True):
         for key in ["user_email", "user", "last_prediction", "weights",
-                     "last_updated", "backtest_result"]:
+                     "last_updated", "backtest_result", "page"]:
             st.session_state.pop(key, None)
+        st.query_params.clear()
         st.rerun()

@@ -2,6 +2,7 @@
 
 import sys
 import os
+import hashlib
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, os.path.dirname(__file__))
@@ -22,11 +23,37 @@ import streamlit as st
 from PIL import Image
 from ui.styles import CUSTOM_CSS, VIEWPORT_META
 from ui.layout import render_sidebar, render_main_content
-from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_page
+from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_page, get_auth_manager
 from ui.i18n import TEXTS
 from feedback.database import Database
 
 _ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+_SESSION_SECRET = "alpha-autolearn-2024"
+
+
+def _make_token(email: str) -> str:
+    return hashlib.sha256((_SESSION_SECRET + email).encode()).hexdigest()[:16]
+
+
+def _try_restore_session():
+    """クエリパラメータからセッション復元"""
+    if "user_email" in st.session_state:
+        return
+    params = st.query_params
+    token = params.get("t", "")
+    email = params.get("u", "")
+    if email and token and _make_token(email) == token:
+        auth = get_auth_manager()
+        user = auth.get_user(email)
+        if user:
+            st.session_state["user_email"] = email
+            st.session_state["user"] = user
+
+
+def _save_session_to_params(email: str):
+    """ログイン後にクエリパラメータにセッション保存"""
+    st.query_params["u"] = email
+    st.query_params["t"] = _make_token(email)
 
 
 def main():
@@ -43,10 +70,16 @@ def main():
     if "db" not in st.session_state:
         st.session_state["db"] = Database()
 
+    # セッション復元
+    _try_restore_session()
+
     # 認証チェック
     if "user_email" not in st.session_state:
         render_auth_page()
         return
+
+    # ログイン済み → クエリパラメータにセッション保存
+    _save_session_to_params(st.session_state["user_email"])
 
     # メインアプリ
     settings = render_sidebar()
@@ -58,6 +91,7 @@ def main():
     elif settings.get("show_subscription"):
         render_subscription_page()
     else:
+        st.session_state["page"] = "main"
         render_main_content(settings)
 
 
