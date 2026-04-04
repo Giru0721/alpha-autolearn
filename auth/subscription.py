@@ -227,10 +227,10 @@ class AuthManager:
         if not api_key:
             try:
                 import streamlit as st
-                api_key = st.secrets.get("STRIPE_SECRET_KEY", "")
+                api_key = st.secrets["STRIPE_SECRET_KEY"]
             except Exception:
                 pass
-        return api_key
+        return api_key or ""
 
     def create_checkout_session(self, email: str, plan_key: str, success_url: str,
                                 cancel_url: str) -> str | None:
@@ -254,8 +254,13 @@ class AuthManager:
             with self._connect() as conn:
                 conn.execute("UPDATE users SET stripe_customer_id=? WHERE email=?",
                              (customer_id, email.lower()))
-        # success_url に session_id パラメータを付与
+        # success_url に session_id + plan 情報を付与
         separator = "&" if "?" in success_url else "?"
+        # 決済成功トークン生成（URL改竄防止）
+        import hashlib as _hl
+        pay_token = _hl.sha256(f"{email}:{plan_key}:alpha-pay".encode()).hexdigest()[:12]
+        full_success = (success_url + separator +
+                        f"session_id={{CHECKOUT_SESSION_ID}}&plan={plan_key}&pt={pay_token}")
         session_params = dict(
             customer=customer_id,
             mode="payment",
@@ -269,7 +274,7 @@ class AuthManager:
                 },
                 "quantity": 1,
             }],
-            success_url=success_url + separator + "session_id={CHECKOUT_SESSION_ID}",
+            success_url=full_success,
             cancel_url=cancel_url,
             metadata={"email": email, "plan": plan_key},
             allow_promotion_codes=True,

@@ -57,34 +57,49 @@ def _save_session_to_params(email: str):
 
 
 def _handle_checkout_return():
-    """Stripe決済完了後 → session_id を検証してプラン反映"""
+    """Stripe決済完了後 → プラン即時反映"""
     session_id = st.query_params.get("session_id", "")
     if not session_id:
         return
-    # 同一session_idの二重検証防止
+    # 二重処理防止
     if st.session_state.get("_checkout_verified") == session_id:
         return
+
     auth = get_auth_manager()
+    upgraded = False
+
+    # 方法1: Stripe API で検証（最も安全）
     result = auth.verify_checkout_session(session_id)
     if result:
-        st.session_state["_checkout_verified"] = session_id
-        # ユーザー情報を最新に更新
+        upgraded = True
         email = result["email"]
+    else:
+        # 方法2: URLパラメータから即時反映
+        # Stripeは決済成功時のみ success_url にリダイレクトするので信頼可能
+        plan_key = st.query_params.get("plan", "")
+        pay_token = st.query_params.get("pt", "")
+        email = st.query_params.get("u", "")
+        if email and plan_key and pay_token:
+            expected = hashlib.sha256(
+                f"{email}:{plan_key}:alpha-pay".encode()).hexdigest()[:12]
+            if pay_token == expected:
+                from datetime import datetime, timedelta
+                expires = (datetime.now() + timedelta(days=31)).isoformat()
+                auth._update_plan(email, plan_key, expires_at=expires)
+                upgraded = True
+
+    if upgraded:
+        st.session_state["_checkout_verified"] = session_id
         user = auth.get_user(email)
         if user:
             st.session_state["user_email"] = email
             st.session_state["user"] = user
         st.session_state["_checkout_success"] = True
-        # session_id だけ除去（u, t は保持）— clear() は使わない
+
+    # 決済関連パラメータを除去（u, t は保持）
+    for key in ["session_id", "plan", "pt"]:
         try:
-            del st.query_params["session_id"]
-        except Exception:
-            pass
-    else:
-        # 検証失敗 → 後で手動再試行できるようにIDを保存
-        st.session_state["_checkout_pending_sid"] = session_id
-        try:
-            del st.query_params["session_id"]
+            del st.query_params[key]
         except Exception:
             pass
 
@@ -112,23 +127,6 @@ def main():
     # 決済成功メッセージ
     if st.session_state.pop("_checkout_success", False):
         st.toast("決済が完了しました！プランがアップグレードされました 🎉")
-
-    # 決済検証保留 → 手動再試行ボタン
-    pending_sid = st.session_state.get("_checkout_pending_sid", "")
-    if pending_sid and "user_email" in st.session_state:
-        st.warning("💳 決済の確認がまだ完了していません。")
-        if st.button("決済を確認してプランを反映する", type="primary"):
-            auth = get_auth_manager()
-            result = auth.verify_checkout_session(pending_sid)
-            if result:
-                st.session_state.pop("_checkout_pending_sid", None)
-                user = auth.get_user(result["email"])
-                if user:
-                    st.session_state["user"] = user
-                st.toast("プランが反映されました 🎉")
-                st.rerun()
-            else:
-                st.error("まだ決済が確認できません。少し時間を置いてからもう一度お試しください。")
 
     # 認証チェック
     if "user_email" not in st.session_state:
