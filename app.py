@@ -27,8 +27,7 @@ from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_
 from ui.i18n import TEXTS
 from feedback.database import Database
 
-_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.jpg")
-_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.jpg")
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
 _SESSION_SECRET = "alpha-autolearn-2024"
 
 
