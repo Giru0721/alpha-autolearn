@@ -99,7 +99,7 @@ class AuthManager:
                 pass  # 既に存在する場合
 
     def _ensure_admin(self):
-        """管理者アカウントの自動作成"""
+        """管理者アカウントの自動作成・パスワード同期"""
         if not ADMIN_EMAIL:
             return
         user = self.get_user(ADMIN_EMAIL)
@@ -108,10 +108,15 @@ class AuthManager:
             with self._connect() as conn:
                 conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
                              (ADMIN_EMAIL.lower(),))
-        elif user.get("role") != "admin":
+        else:
+            # 既存ユーザーのrole/plan/passwordを常に同期
+            salt = secrets.token_hex(16)
+            pw_hash = _hash_password(ADMIN_PASSWORD, salt)
             with self._connect() as conn:
-                conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
-                             (ADMIN_EMAIL.lower(),))
+                conn.execute(
+                    "UPDATE users SET role='admin', plan='admin', "
+                    "password_hash=?, salt=? WHERE email=?",
+                    (pw_hash, salt, ADMIN_EMAIL.lower()))
 
     def register(self, email: str, password: str, display_name: str = "") -> dict:
         salt = secrets.token_hex(16)
