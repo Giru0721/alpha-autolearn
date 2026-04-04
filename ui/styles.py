@@ -26,7 +26,8 @@ CUSTOM_CSS = """
     .stTabs [data-baseweb="tab-panel"] { padding-top: 16px; }
     .stButton > button { width: 100%; border-radius: 8px; }
 
-    /* ===== フッター非表示 ===== */
+    /* ===== 右上ツールバー（GitHub等）・フッター非表示 ===== */
+    [data-testid="stToolbar"] { visibility: hidden !important; height: 0 !important; }
     footer { display: none !important; }
 
     /* ===== スマホ対応 (768px以下) ===== */
