@@ -126,10 +126,10 @@ def main():
     import streamlit.components.v1 as _components
     _components.html("""
     <script>
-    function hideBadges() {
+    function hideStuff() {
         try {
             var pd = window.parent.document;
-            // 固定配置の要素で右下にあるもの全て非表示
+            // 右下の固定バッジを非表示
             pd.querySelectorAll('*').forEach(function(el) {
                 var s = window.getComputedStyle(el);
                 if (s.position === 'fixed') {
@@ -142,12 +142,22 @@ def main():
                     }
                 }
             });
+            // GitHubアイコン（Fork）を非表示
+            pd.querySelectorAll('a[href*="github"]').forEach(function(el) {
+                el.style.display = 'none';
+            });
+            pd.querySelectorAll('[data-testid="stToolbarActions"] > div').forEach(function(el) {
+                if (el.querySelector('a') || el.innerHTML.indexOf('github') >= 0 ||
+                    el.innerHTML.indexOf('fork') >= 0) {
+                    el.style.display = 'none';
+                }
+            });
         } catch(e) {}
     }
-    setTimeout(hideBadges, 500);
-    setTimeout(hideBadges, 1500);
-    setTimeout(hideBadges, 4000);
-    setInterval(hideBadges, 10000);
+    setTimeout(hideStuff, 500);
+    setTimeout(hideStuff, 1500);
+    setTimeout(hideStuff, 4000);
+    setInterval(hideStuff, 10000);
     </script>
     """, height=0)
 
