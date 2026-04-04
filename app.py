@@ -56,6 +56,32 @@ def _save_session_to_params(email: str):
     st.query_params["t"] = _make_token(email)
 
 
+def _handle_checkout_return():
+    """Stripe決済完了後 → session_id を検証してプラン反映"""
+    session_id = st.query_params.get("session_id", "")
+    if not session_id:
+        return
+    # 同一session_idの二重検証防止
+    if st.session_state.get("_checkout_verified") == session_id:
+        return
+    auth = get_auth_manager()
+    result = auth.verify_checkout_session(session_id)
+    if result:
+        st.session_state["_checkout_verified"] = session_id
+        # ユーザー情報を最新に更新
+        email = result["email"]
+        user = auth.get_user(email)
+        if user:
+            st.session_state["user_email"] = email
+            st.session_state["user"] = user
+        # session_id をURLから除去（u, t は残す）
+        kept = {k: v for k, v in st.query_params.items() if k != "session_id"}
+        st.query_params.clear()
+        for k, v in kept.items():
+            st.query_params[k] = v
+        st.session_state["_checkout_success"] = True
+
+
 def main():
     _icon = Image.open(_ICON_PATH) if os.path.exists(_ICON_PATH) else TEXTS["app_icon"]
     st.set_page_config(
@@ -72,6 +98,13 @@ def main():
 
     # セッション復元
     _try_restore_session()
+
+    # Stripe決済完了後のプラン反映
+    _handle_checkout_return()
+
+    # 決済成功メッセージ
+    if st.session_state.pop("_checkout_success", False):
+        st.toast("決済が完了しました！プランがアップグレードされました 🎉")
 
     # 認証チェック
     if "user_email" not in st.session_state:

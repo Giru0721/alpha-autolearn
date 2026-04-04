@@ -132,36 +132,50 @@ def render_subscription_page():
             """, unsafe_allow_html=True)
 
             if not is_current and key != "free" and email and email != "guest":
-                if st.button(f"Upgrade to {plan_name}" if lang == "en" else f"{plan_name}にアップグレード",
-                             key=f"upgrade_{key}", use_container_width=True):
-                    try:
-                        app_url = "https://" + st.context.headers.get("Host", "localhost:8501")
-                    except Exception:
-                        app_url = "http://localhost:8501"
-                    try:
-                        checkout_url = auth.create_checkout_session(email, key, app_url, app_url)
-                    except Exception as e:
-                        st.error(f"Stripe error: {e}")
-                        checkout_url = None
-                    if checkout_url:
-                        st.link_button("Stripe決済ページへ", checkout_url, type="primary",
-                                       use_container_width=True)
-                        st.stop()
-                    else:
-                        # デバッグ: なぜNoneなのか表示
-                        import os
-                        sk = os.environ.get("STRIPE_SECRET_KEY", "")
+                checkout_cache_key = f"_checkout_url_{key}"
+                # チェックアウトURL生成済み → 決済リンク表示
+                if checkout_cache_key in st.session_state and st.session_state[checkout_cache_key]:
+                    st.link_button(
+                        "💳 " + ("Go to payment" if lang == "en" else "決済ページへ進む"),
+                        st.session_state[checkout_cache_key],
+                        type="primary", use_container_width=True)
+                    st.caption("Visa / Mastercard / JCB / PayPay / コンビニ" if lang == "ja"
+                               else "Visa / Mastercard / JCB / PayPay / Konbini")
+                # Stripe未設定 → デモモード
+                elif checkout_cache_key in st.session_state and st.session_state[checkout_cache_key] is None:
+                    st.info("Demo mode" if lang == "en"
+                            else "Stripe未設定のため、デモモードです。")
+                    if st.button("Demo upgrade" if lang == "en" else "デモアップグレード",
+                                 key=f"demo_{key}"):
+                        auth._update_plan(email, key, expires_at="2099-12-31T23:59:59")
+                        user_data = auth.get_user(email)
+                        if user_data:
+                            st.session_state["user"] = user_data
+                        st.rerun()
+                # 初期状態 → アップグレードボタン
+                else:
+                    if st.button(
+                        f"Upgrade to {plan_name}" if lang == "en" else f"{plan_name}にアップグレード",
+                        key=f"upgrade_{key}", use_container_width=True):
                         try:
-                            sk2 = st.secrets.get("STRIPE_SECRET_KEY", "")
+                            app_url = "https://" + st.context.headers.get("Host", "localhost:8501")
                         except Exception:
-                            sk2 = ""
-                        has_key = bool(sk or sk2)
-                        st.warning(f"Stripe API Key: {'set' if has_key else 'NOT SET'} | "
-                                   f"Plan: {key} | Email: {email}")
-                        st.info("Demo mode" if lang == "en" else "Stripe未設定のため、デモモードです。全機能が利用可能です。")
-                        if st.button("デモモードでアップグレード", key=f"demo_{key}"):
-                            auth._update_plan(email, key, expires_at="2099-12-31T23:59:59")
-                            st.rerun()
+                            app_url = "http://localhost:8501"
+                        # セッショントークンをURLに含め、決済後もログイン維持
+                        import hashlib
+                        from urllib.parse import quote
+                        _token = hashlib.sha256(
+                            ("alpha-autolearn-2024" + email).encode()).hexdigest()[:16]
+                        success_url = f"{app_url}?u={quote(email)}&t={_token}"
+                        cancel_url = f"{app_url}?u={quote(email)}&t={_token}"
+                        try:
+                            url = auth.create_checkout_session(
+                                email, key, success_url, cancel_url)
+                        except Exception as e:
+                            st.error(f"Stripe error: {e}")
+                            url = None
+                        st.session_state[checkout_cache_key] = url
+                        st.rerun()
 
     if email and email != "guest":
         st.divider()

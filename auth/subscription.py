@@ -221,10 +221,8 @@ class AuthManager:
             conn.execute("DELETE FROM users WHERE email=? AND role != 'admin'",
                          (email.lower(),))
 
-    def create_checkout_session(self, email: str, plan_key: str, success_url: str,
-                                cancel_url: str) -> str | None:
-        """Stripe Checkout セッション作成"""
-        # 実行時にキーを再取得（Streamlit Cloud Secrets対応）
+    def _get_stripe_key(self) -> str:
+        """Stripe APIキーを実行時に取得（環境変数 + Streamlit Secrets）"""
         api_key = os.environ.get("STRIPE_SECRET_KEY", "")
         if not api_key:
             try:
@@ -232,27 +230,18 @@ class AuthManager:
                 api_key = st.secrets.get("STRIPE_SECRET_KEY", "")
             except Exception:
                 pass
+        return api_key
+
+    def create_checkout_session(self, email: str, plan_key: str, success_url: str,
+                                cancel_url: str) -> str | None:
+        """Stripe Checkout セッション作成（単発決済 - PayPay/コンビニ対応）"""
+        api_key = self._get_stripe_key()
         if not api_key:
             return None
         stripe.api_key = api_key
 
-        # 実行時にPrice IDを取得
-        price_ids = {
-            "pro": os.environ.get("STRIPE_PRO_PRICE_ID", ""),
-            "premium": os.environ.get("STRIPE_PREMIUM_PRICE_ID", ""),
-        }
-        try:
-            import streamlit as st
-            price_ids["pro"] = price_ids["pro"] or st.secrets.get("STRIPE_PRO_PRICE_ID", "")
-            price_ids["premium"] = price_ids["premium"] or st.secrets.get("STRIPE_PREMIUM_PRICE_ID", "")
-        except Exception:
-            pass
-
-        price_id = price_ids.get(plan_key, "")
-        if not price_id:
-            return None
         plan = PLANS.get(plan_key)
-        if not plan:
+        if not plan or plan["price"] == 0:
             return None
         user = self.get_user(email)
         if not user:
@@ -265,18 +254,55 @@ class AuthManager:
             with self._connect() as conn:
                 conn.execute("UPDATE users SET stripe_customer_id=? WHERE email=?",
                              (customer_id, email.lower()))
-        session = stripe.checkout.Session.create(
+        # success_url に session_id パラメータを付与
+        separator = "&" if "?" in success_url else "?"
+        session_params = dict(
             customer=customer_id,
-            payment_method_types=["card"],
-            line_items=[{"price": price_id, "quantity": 1}],
-            mode="subscription",
-            success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
+            mode="payment",
+            line_items=[{
+                "price_data": {
+                    "currency": "jpy",
+                    "product_data": {
+                        "name": f"Alpha-AutoLearn {plan.get('name_en', plan['name'])}（1ヶ月）",
+                    },
+                    "unit_amount": plan["price"],
+                },
+                "quantity": 1,
+            }],
+            success_url=success_url + separator + "session_id={CHECKOUT_SESSION_ID}",
             cancel_url=cancel_url,
             metadata={"email": email, "plan": plan_key},
             allow_promotion_codes=True,
             locale="ja",
         )
+        try:
+            # payment_method_types 未指定 → Stripeダッシュボードで有効化済みの
+            # 全決済手段（Card, PayPay, コンビニ等）が自動で表示される
+            session = stripe.checkout.Session.create(**session_params)
+        except Exception:
+            # フォールバック: カードのみ
+            session_params["payment_method_types"] = ["card"]
+            session = stripe.checkout.Session.create(**session_params)
         return session.url
+
+    def verify_checkout_session(self, session_id: str) -> dict | None:
+        """Stripe決済完了を検証してプラン反映"""
+        api_key = self._get_stripe_key()
+        if not api_key:
+            return None
+        stripe.api_key = api_key
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+            if session.payment_status == "paid":
+                email = session.metadata.get("email", "")
+                plan_key = session.metadata.get("plan", "")
+                if email and plan_key:
+                    expires = (datetime.now() + timedelta(days=31)).isoformat()
+                    self._update_plan(email, plan_key, expires_at=expires)
+                    return {"email": email, "plan": plan_key}
+        except Exception:
+            pass
+        return None
 
     def handle_webhook(self, payload: bytes, sig_header: str) -> bool:
         """Stripe Webhook処理"""
@@ -290,9 +316,8 @@ class AuthManager:
             session = event["data"]["object"]
             email = session["metadata"]["email"]
             plan_key = session["metadata"]["plan"]
-            sub_id = session.get("subscription")
             expires = (datetime.now() + timedelta(days=31)).isoformat()
-            self._update_plan(email, plan_key, expires, sub_id)
+            self._update_plan(email, plan_key, expires)
         elif event["type"] == "customer.subscription.deleted":
             sub = event["data"]["object"]
             customer_id = sub["customer"]
