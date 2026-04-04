@@ -48,9 +48,12 @@ def render_portfolio_page():
             if ticker and add_shares > 0:
                 if add_price == 0:
                     add_price = get_current_price(ticker)
-                pdb.add_holding(email, ticker, add_shares, add_price, add_memo)
-                st.success(f"{ticker} OK")
-                st.rerun()
+                if add_price <= 0:
+                    st.error("価格を取得できませんでした。手動で入力してください。")
+                else:
+                    pdb.add_holding(email, ticker, add_shares, add_price, add_memo)
+                    st.success(f"{ticker} OK")
+                    st.rerun()
             else:
                 st.error("Enter ticker and shares")
 
@@ -62,11 +65,15 @@ def render_portfolio_page():
     portfolio_data = []
     total_value = 0
     total_cost = 0
+    price_errors = []
     for _, row in holdings.iterrows():
         ticker = row["ticker"]
         shares = row["shares"]
         avg_price = row["avg_price"]
         current = get_current_price(ticker)
+        if current <= 0:
+            price_errors.append(ticker)
+            current = avg_price  # フォールバック: 取得単価で代替
         cost = shares * avg_price
         value = shares * current
         pnl = value - cost
@@ -81,6 +88,8 @@ def render_portfolio_page():
             "pnl": pnl, "pnl_pct": pnl_pct,
             "ticker_raw": ticker,
         })
+    if price_errors:
+        st.warning(f"⚠ 以下の銘柄の現在価格を取得できませんでした（取得単価で代替表示中）: {', '.join(price_errors)}")
 
     total_pnl = total_value - total_cost
     total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0

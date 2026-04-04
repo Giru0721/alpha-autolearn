@@ -229,8 +229,14 @@ def render_user_badge():
 
     if st.button("Logout" if lang == "en" else "ログアウト",
                  key="logout_btn", use_container_width=True):
+        # 基本セッション情報
         for key in ["user_email", "user", "last_prediction", "weights",
-                     "last_updated", "backtest_result", "page"]:
+                     "last_updated", "backtest_result", "page",
+                     "auth_manager", "_checkout_verified", "_checkout_success"]:
+            st.session_state.pop(key, None)
+        # チェックアウトURLキャッシュを全削除
+        checkout_keys = [k for k in st.session_state if k.startswith("_checkout_url_")]
+        for key in checkout_keys:
             st.session_state.pop(key, None)
         st.query_params.clear()
         st.rerun()

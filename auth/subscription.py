@@ -9,7 +9,26 @@ from contextlib import contextmanager
 
 import stripe
 
-from config import DATABASE_PATH, ADMIN_EMAIL, ADMIN_PASSWORD
+from config import DATABASE_PATH, ADMIN_EMAIL as _ADMIN_EMAIL, ADMIN_PASSWORD as _ADMIN_PASSWORD
+
+
+def _get_admin_creds():
+    """管理者情報を環境変数 → Streamlit Secrets から取得"""
+    email = _ADMIN_EMAIL
+    password = _ADMIN_PASSWORD
+    if not email:
+        try:
+            import streamlit as st
+            email = st.secrets.get("ADMIN_EMAIL", "") or st.secrets["ADMIN_EMAIL"]
+        except Exception:
+            pass
+    if not password:
+        try:
+            import streamlit as st
+            password = st.secrets.get("ADMIN_PASSWORD", "") or st.secrets["ADMIN_PASSWORD"]
+        except Exception:
+            pass
+    return email, password
 
 # Stripe設定（環境変数から取得）
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -100,30 +119,31 @@ class AuthManager:
 
     def _ensure_admin(self):
         """管理者アカウントの自動作成・パスワード同期"""
-        if not ADMIN_EMAIL:
+        admin_email, admin_password = _get_admin_creds()
+        if not admin_email or not admin_password:
             return
-        user = self.get_user(ADMIN_EMAIL)
+        user = self.get_user(admin_email)
         if not user:
-            self.register(ADMIN_EMAIL, ADMIN_PASSWORD, "管理者")
+            self.register(admin_email, admin_password, "管理者")
             with self._connect() as conn:
                 conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
-                             (ADMIN_EMAIL.lower(),))
+                             (admin_email.lower(),))
         else:
-            # 既存ユーザーのrole/plan/passwordを常に同期
             salt = secrets.token_hex(16)
-            pw_hash = _hash_password(ADMIN_PASSWORD, salt)
+            pw_hash = _hash_password(admin_password, salt)
             with self._connect() as conn:
                 conn.execute(
                     "UPDATE users SET role='admin', plan='admin', "
                     "password_hash=?, salt=? WHERE email=?",
-                    (pw_hash, salt, ADMIN_EMAIL.lower()))
+                    (pw_hash, salt, admin_email.lower()))
 
     def register(self, email: str, password: str, display_name: str = "") -> dict:
         salt = secrets.token_hex(16)
         pw_hash = _hash_password(password, salt)
         with self._connect() as conn:
             try:
-                role = "admin" if email.lower().strip() == ADMIN_EMAIL.lower() else "user"
+                _ae, _ = _get_admin_creds()
+                role = "admin" if (_ae and email.lower().strip() == _ae.lower()) else "user"
                 plan = "admin" if role == "admin" else "free"
                 conn.execute("""
                     INSERT INTO users (email, password_hash, salt, display_name, role, plan)

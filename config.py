@@ -78,8 +78,9 @@ PERIOD_OPTIONS = {
 }
 
 # Admin設定
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "chinjyao0326@gmail.com")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin2024!")
+# 管理者設定（Streamlit Cloud Secrets または環境変数で設定してください）
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
 # メール通知設定 (SMTP)
 SMTP_HOST = os.environ.get("SMTP_HOST", "")

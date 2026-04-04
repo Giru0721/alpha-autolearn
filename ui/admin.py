@@ -14,7 +14,8 @@ def render_admin_page():
         st.error("Access denied")
         return
 
-    auth = AuthManager()
+    from ui.auth_ui import get_auth_manager
+    auth = get_auth_manager()
     st.markdown(f"### {T('admin_panel')}")
 
     # ユーザー統計
@@ -46,25 +47,28 @@ def render_admin_page():
         st.dataframe(df[display_cols].rename(columns=col_rename),
                      use_container_width=True, hide_index=True)
 
-        # プラン変更
-        st.markdown("##### Change User Plan")
-        with st.form("admin_plan_form"):
-            target_email = st.selectbox("User", [u["email"] for u in users if u["role"] != "admin"])
-            new_plan = st.selectbox("Plan", ["free", "pro", "premium"])
-            if st.form_submit_button("Update", type="primary"):
-                auth.update_user_plan(target_email, new_plan)
-                st.success(f"{target_email} -> {new_plan}")
-                st.rerun()
+        # プラン変更・ユーザー削除
+        non_admin_emails = [u["email"] for u in users if u["role"] != "admin"]
+        if non_admin_emails:
+            st.markdown("##### Change User Plan")
+            with st.form("admin_plan_form"):
+                target_email = st.selectbox("User", non_admin_emails)
+                new_plan = st.selectbox("Plan", ["free", "pro", "premium"])
+                if st.form_submit_button("Update", type="primary"):
+                    auth.update_user_plan(target_email, new_plan)
+                    st.success(f"{target_email} -> {new_plan}")
+                    st.rerun()
 
-        # ユーザー削除
-        st.markdown("##### Delete User")
-        with st.form("admin_delete_form"):
-            del_email = st.selectbox("User", [u["email"] for u in users if u["role"] != "admin"],
-                                     key="del_user_select")
-            if st.form_submit_button("Delete", type="secondary"):
-                auth.delete_user(del_email)
-                st.success(f"Deleted: {del_email}")
-                st.rerun()
+            st.markdown("##### Delete User")
+            with st.form("admin_delete_form"):
+                del_email = st.selectbox("User", non_admin_emails,
+                                         key="del_user_select")
+                if st.form_submit_button("Delete", type="secondary"):
+                    auth.delete_user(del_email)
+                    st.success(f"Deleted: {del_email}")
+                    st.rerun()
+        else:
+            st.info("管理者以外のユーザーがまだ登録されていません。")
 
     # Stripe設定状況
     st.divider()

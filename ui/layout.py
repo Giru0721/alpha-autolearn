@@ -143,16 +143,35 @@ def render_main_content(settings):
                 st.success(TEXTS["adjustment_complete"])
             else:
                 st.info(TEXTS["no_history"])
+    # 銘柄変更時に古い予測をクリア
     prediction = st.session_state.get("last_prediction")
+    if prediction and prediction.get("_ticker") != ticker:
+        prediction = None
+        st.session_state.pop("last_prediction", None)
     if settings["predict_clicked"]:
-        # プラン制限チェック
+        # プラン制限チェック（ゲスト含む全ユーザー対象）
         email = st.session_state.get("user_email", "guest")
         if email != "guest":
-            from auth.subscription import AuthManager
-            auth = AuthManager()
+            from ui.auth_ui import get_auth_manager
+            auth = get_auth_manager()
             check = auth.check_prediction_limit(email)
             if not check["allowed"]:
                 st.warning(check["message"])
+                if prediction:
+                    syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
+                    render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
+                return
+        else:
+            # ゲストは1日3回まで（無料プランと同等）
+            guest_count = st.session_state.get("_guest_predict_count", 0)
+            guest_date = st.session_state.get("_guest_predict_date", "")
+            today = datetime.now().strftime("%Y-%m-%d")
+            if guest_date != today:
+                guest_count = 0
+            if guest_count >= 3:
+                st.warning("ゲストの予測上限（3回/日）に達しました。ログインするとより多くの予測が可能です。"
+                           if get_lang() == "ja"
+                           else "Guest limit reached (3/day). Log in for more predictions.")
                 if prediction:
                     syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
                     render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
@@ -162,12 +181,17 @@ def render_main_content(settings):
             ensemble = EnsemblePredictor(db, ticker)
             prediction = ensemble.train_and_predict(feature_matrix, settings["horizon"])
             prediction["horizon"] = settings["horizon"]
+            prediction["_ticker"] = ticker
             st.session_state["last_prediction"] = prediction
             st.session_state["weights"] = ensemble.weights
             st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             # 予測カウント
             if email != "guest":
                 auth.increment_prediction_count(email)
+            else:
+                today = datetime.now().strftime("%Y-%m-%d")
+                st.session_state["_guest_predict_date"] = today
+                st.session_state["_guest_predict_count"] = st.session_state.get("_guest_predict_count", 0) + 1
     if prediction:
         syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
         render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
