@@ -27,7 +27,8 @@ from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_
 from ui.i18n import TEXTS
 from feedback.database import Database
 
-_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.jpg")
+_LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.jpg")
 _SESSION_SECRET = "alpha-autolearn-2024"
 
 
@@ -74,12 +75,19 @@ def _handle_checkout_return():
         if user:
             st.session_state["user_email"] = email
             st.session_state["user"] = user
-        # session_id をURLから除去（u, t は残す）
-        kept = {k: v for k, v in st.query_params.items() if k != "session_id"}
-        st.query_params.clear()
-        for k, v in kept.items():
-            st.query_params[k] = v
         st.session_state["_checkout_success"] = True
+        # session_id だけ除去（u, t は保持）— clear() は使わない
+        try:
+            del st.query_params["session_id"]
+        except Exception:
+            pass
+    else:
+        # 検証失敗 → 後で手動再試行できるようにIDを保存
+        st.session_state["_checkout_pending_sid"] = session_id
+        try:
+            del st.query_params["session_id"]
+        except Exception:
+            pass
 
 
 def main():
@@ -105,6 +113,23 @@ def main():
     # 決済成功メッセージ
     if st.session_state.pop("_checkout_success", False):
         st.toast("決済が完了しました！プランがアップグレードされました 🎉")
+
+    # 決済検証保留 → 手動再試行ボタン
+    pending_sid = st.session_state.get("_checkout_pending_sid", "")
+    if pending_sid and "user_email" in st.session_state:
+        st.warning("💳 決済の確認がまだ完了していません。")
+        if st.button("決済を確認してプランを反映する", type="primary"):
+            auth = get_auth_manager()
+            result = auth.verify_checkout_session(pending_sid)
+            if result:
+                st.session_state.pop("_checkout_pending_sid", None)
+                user = auth.get_user(result["email"])
+                if user:
+                    st.session_state["user"] = user
+                st.toast("プランが反映されました 🎉")
+                st.rerun()
+            else:
+                st.error("まだ決済が確認できません。少し時間を置いてからもう一度お試しください。")
 
     # 認証チェック
     if "user_email" not in st.session_state:

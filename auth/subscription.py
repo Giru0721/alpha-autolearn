@@ -294,15 +294,18 @@ class AuthManager:
         try:
             session = stripe.checkout.Session.retrieve(session_id)
             if session.payment_status == "paid":
-                email = session.metadata.get("email", "")
-                plan_key = session.metadata.get("plan", "")
+                email = (session.metadata or {}).get("email", "")
+                plan_key = (session.metadata or {}).get("plan", "")
                 if email and plan_key:
                     expires = (datetime.now() + timedelta(days=31)).isoformat()
                     self._update_plan(email, plan_key, expires_at=expires)
                     return {"email": email, "plan": plan_key}
-        except Exception:
-            pass
-        return None
+            # 非同期決済（コンビニ等）の場合は未払い
+            return None
+        except Exception as e:
+            # エラーログ（Streamlit Cloud で確認可能）
+            print(f"[Stripe verify error] session_id={session_id} error={e}")
+            return None
 
     def handle_webhook(self, payload: bytes, sig_header: str) -> bool:
         """Stripe Webhook処理"""

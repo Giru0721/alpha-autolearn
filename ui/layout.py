@@ -34,9 +34,14 @@ def _normalize_ticker(raw: str) -> str:
 
 def render_sidebar():
     from ui.auth_ui import render_user_badge, render_language_selector
+    import os
     show_subscription = False
     show_admin = False
     with st.sidebar:
+        # ロゴ表示
+        _logo = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "icon.jpg")
+        if os.path.exists(_logo):
+            st.image(_logo, width=120)
         render_user_badge()
         st.title(TEXTS["sidebar_title"])
         raw_ticker = st.text_input(TEXTS["ticker_input"], value=DEFAULT_TICKER,
