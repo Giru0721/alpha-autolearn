@@ -135,28 +135,33 @@ def render_subscription_page():
                 if st.button(f"Upgrade to {plan_name}" if lang == "en" else f"{plan_name}にアップグレード",
                              key=f"upgrade_{key}", use_container_width=True):
                     try:
-                        # Streamlit Cloudの実URLを自動取得
-                        import streamlit.web.bootstrap as _bs
-                        app_url = st.session_state.get("app_url", "")
-                    except Exception:
-                        app_url = ""
-                    if not app_url:
-                        from urllib.parse import urlparse
                         app_url = "https://" + st.context.headers.get("Host", "localhost:8501")
+                    except Exception:
+                        app_url = "http://localhost:8501"
                     try:
                         checkout_url = auth.create_checkout_session(email, key, app_url, app_url)
                     except Exception as e:
                         st.error(f"Stripe error: {e}")
                         checkout_url = None
                     if checkout_url:
-                        st.markdown(
-                            f'<meta http-equiv="refresh" content="0;url={checkout_url}">',
-                            unsafe_allow_html=True)
-                        st.markdown(f"[Stripe決済ページへ]({checkout_url})")
+                        st.link_button("Stripe決済ページへ", checkout_url, type="primary",
+                                       use_container_width=True)
+                        st.stop()
                     else:
-                        st.info("Demo mode" if lang == "en" else "Stripe未設定のため、デモモードです。")
-                        auth._update_plan(email, key, expires_at="2099-12-31T23:59:59")
-                        st.rerun()
+                        # デバッグ: なぜNoneなのか表示
+                        import os
+                        sk = os.environ.get("STRIPE_SECRET_KEY", "")
+                        try:
+                            sk2 = st.secrets.get("STRIPE_SECRET_KEY", "")
+                        except Exception:
+                            sk2 = ""
+                        has_key = bool(sk or sk2)
+                        st.warning(f"Stripe API Key: {'set' if has_key else 'NOT SET'} | "
+                                   f"Plan: {key} | Email: {email}")
+                        st.info("Demo mode" if lang == "en" else "Stripe未設定のため、デモモードです。全機能が利用可能です。")
+                        if st.button("デモモードでアップグレード", key=f"demo_{key}"):
+                            auth._update_plan(email, key, expires_at="2099-12-31T23:59:59")
+                            st.rerun()
 
     if email and email != "guest":
         st.divider()
