@@ -26,6 +26,13 @@ CUSTOM_CSS = """
     .stTabs [data-baseweb="tab-panel"] { padding-top: 16px; }
     .stButton > button { width: 100%; border-radius: 8px; }
 
+    /* ===== ツールバー・フッター非表示 ===== */
+    [data-testid="stToolbar"] { display: none !important; }
+    #MainMenu { display: none !important; }
+    footer { display: none !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    [data-testid="stStatusWidget"] { display: none !important; }
+
     /* ===== スマホ対応 (768px以下) ===== */
     @media (max-width: 768px) {
         .block-container {
