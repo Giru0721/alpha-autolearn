@@ -1,0 +1,221 @@
+"""サブスクリプション管理 - Stripe連携 + ローカル認証"""
+
+import os
+import hashlib
+import sqlite3
+import secrets
+from datetime import datetime, timedelta
+from contextlib import contextmanager
+
+import stripe
+
+from config import DATABASE_PATH
+
+# Stripe設定（環境変数から取得）
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+# プラン定義
+PLANS = {
+    "free": {
+        "name": "無料プラン",
+        "price": 0,
+        "predictions_per_day": 3,
+        "horizons_max": 30,
+        "features": ["基本テクニカル指標", "価格チャート", "5日後まで予測"],
+        "stripe_price_id": None,
+    },
+    "pro": {
+        "name": "プロプラン",
+        "price": 980,
+        "predictions_per_day": 30,
+        "horizons_max": 365,
+        "features": ["全テクニカル指標", "FRED経済データ", "1年予測", "シナリオ分析", "自動調整"],
+        "stripe_price_id": os.environ.get("STRIPE_PRO_PRICE_ID", ""),
+    },
+    "premium": {
+        "name": "プレミアムプラン",
+        "price": 2980,
+        "predictions_per_day": -1,  # 無制限
+        "horizons_max": 365,
+        "features": ["全プロ機能", "ニュースセンチメント", "Googleトレンド", "API連携", "優先サポート"],
+        "stripe_price_id": os.environ.get("STRIPE_PREMIUM_PRICE_ID", ""),
+    },
+}
+
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.sha256((salt + password).encode()).hexdigest()
+
+
+class AuthManager:
+    def __init__(self, db_path: str = DATABASE_PATH):
+        self.db_path = db_path
+        self._init_auth_tables()
+
+    @contextmanager
+    def _connect(self):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _init_auth_tables(self):
+        with self._connect() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email           TEXT NOT NULL UNIQUE,
+                    password_hash   TEXT NOT NULL,
+                    salt            TEXT NOT NULL,
+                    display_name    TEXT,
+                    plan            TEXT DEFAULT 'free',
+                    stripe_customer_id TEXT,
+                    stripe_subscription_id TEXT,
+                    plan_expires_at TEXT,
+                    predictions_today INTEGER DEFAULT 0,
+                    predictions_date TEXT,
+                    created_at      TEXT DEFAULT (datetime('now')),
+                    updated_at      TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                CREATE INDEX IF NOT EXISTS idx_users_stripe ON users(stripe_customer_id);
+            """)
+
+    def register(self, email: str, password: str, display_name: str = "") -> dict:
+        salt = secrets.token_hex(16)
+        pw_hash = _hash_password(password, salt)
+        with self._connect() as conn:
+            try:
+                conn.execute("""
+                    INSERT INTO users (email, password_hash, salt, display_name)
+                    VALUES (?, ?, ?, ?)
+                """, (email.lower().strip(), pw_hash, salt, display_name or email.split("@")[0]))
+                return {"success": True, "message": "登録完了"}
+            except sqlite3.IntegrityError:
+                return {"success": False, "message": "このメールアドレスは既に登録されています"}
+
+    def login(self, email: str, password: str) -> dict:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email=?", (email.lower().strip(),)
+            ).fetchone()
+            if not row:
+                return {"success": False, "message": "メールアドレスまたはパスワードが正しくありません"}
+            if _hash_password(password, row["salt"]) != row["password_hash"]:
+                return {"success": False, "message": "メールアドレスまたはパスワードが正しくありません"}
+            return {"success": True, "user": dict(row)}
+
+    def get_user(self, email: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE email=?", (email.lower(),)).fetchone()
+            return dict(row) if row else None
+
+    def get_plan(self, email: str) -> dict:
+        user = self.get_user(email)
+        if not user:
+            return PLANS["free"]
+        plan_key = user.get("plan", "free")
+        # サブスクの有効期限チェック
+        expires = user.get("plan_expires_at")
+        if plan_key != "free" and expires:
+            if datetime.fromisoformat(expires) < datetime.now():
+                self._update_plan(email, "free")
+                return PLANS["free"]
+        return PLANS.get(plan_key, PLANS["free"])
+
+    def check_prediction_limit(self, email: str) -> dict:
+        """予測回数制限チェック"""
+        user = self.get_user(email)
+        if not user:
+            return {"allowed": False, "remaining": 0, "message": "ログインが必要です"}
+        plan = self.get_plan(email)
+        limit = plan["predictions_per_day"]
+        if limit == -1:
+            return {"allowed": True, "remaining": -1, "message": "無制限"}
+        today = datetime.now().strftime("%Y-%m-%d")
+        count = user["predictions_today"] if user["predictions_date"] == today else 0
+        if count >= limit:
+            return {"allowed": False, "remaining": 0,
+                    "message": f"本日の予測上限({limit}回)に達しました。プランのアップグレードをご検討ください。"}
+        return {"allowed": True, "remaining": limit - count, "message": "OK"}
+
+    def increment_prediction_count(self, email: str):
+        today = datetime.now().strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            user = conn.execute("SELECT predictions_date, predictions_today FROM users WHERE email=?",
+                                (email.lower(),)).fetchone()
+            if user and user["predictions_date"] == today:
+                conn.execute("UPDATE users SET predictions_today = predictions_today + 1 WHERE email=?",
+                             (email.lower(),))
+            else:
+                conn.execute("UPDATE users SET predictions_today = 1, predictions_date = ? WHERE email=?",
+                             (today, email.lower()))
+
+    def _update_plan(self, email: str, plan: str, expires_at: str = None,
+                     stripe_sub_id: str = None):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE users SET plan=?, plan_expires_at=?, stripe_subscription_id=?,
+                updated_at=datetime('now') WHERE email=?
+            """, (plan, expires_at, stripe_sub_id, email.lower()))
+
+    def create_checkout_session(self, email: str, plan_key: str, success_url: str,
+                                cancel_url: str) -> str | None:
+        """Stripe Checkout セッション作成"""
+        if not stripe.api_key:
+            return None
+        plan = PLANS.get(plan_key)
+        if not plan or not plan.get("stripe_price_id"):
+            return None
+        user = self.get_user(email)
+        if not user:
+            return None
+        # Stripeカスタマー作成/取得
+        customer_id = user.get("stripe_customer_id")
+        if not customer_id:
+            customer = stripe.Customer.create(email=email)
+            customer_id = customer.id
+            with self._connect() as conn:
+                conn.execute("UPDATE users SET stripe_customer_id=? WHERE email=?",
+                             (customer_id, email.lower()))
+        session = stripe.checkout.Session.create(
+            customer=customer_id,
+            payment_method_types=["card"],
+            line_items=[{"price": plan["stripe_price_id"], "quantity": 1}],
+            mode="subscription",
+            success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=cancel_url,
+            metadata={"email": email, "plan": plan_key},
+        )
+        return session.url
+
+    def handle_webhook(self, payload: bytes, sig_header: str) -> bool:
+        """Stripe Webhook処理"""
+        if not STRIPE_WEBHOOK_SECRET:
+            return False
+        try:
+            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        except Exception:
+            return False
+        if event["type"] == "checkout.session.completed":
+            session = event["data"]["object"]
+            email = session["metadata"]["email"]
+            plan_key = session["metadata"]["plan"]
+            sub_id = session.get("subscription")
+            expires = (datetime.now() + timedelta(days=31)).isoformat()
+            self._update_plan(email, plan_key, expires, sub_id)
+        elif event["type"] == "customer.subscription.deleted":
+            sub = event["data"]["object"]
+            customer_id = sub["customer"]
+            with self._connect() as conn:
+                conn.execute("""
+                    UPDATE users SET plan='free', stripe_subscription_id=NULL,
+                    plan_expires_at=NULL WHERE stripe_customer_id=?
+                """, (customer_id,))
+        return True
