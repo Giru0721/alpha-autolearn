@@ -117,10 +117,39 @@ def main():
         page_title=TEXTS["app_title"],
         page_icon=_icon,
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
     st.markdown(VIEWPORT_META, unsafe_allow_html=True)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+    # 右下 Streamlit Cloud バッジを JS で非表示
+    import streamlit.components.v1 as _components
+    _components.html("""
+    <script>
+    function hideBadges() {
+        try {
+            var pd = window.parent.document;
+            // 固定配置の要素で右下にあるもの全て非表示
+            pd.querySelectorAll('*').forEach(function(el) {
+                var s = window.getComputedStyle(el);
+                if (s.position === 'fixed') {
+                    var r = el.getBoundingClientRect();
+                    if (r.bottom > (window.innerHeight - 80) && r.right > (window.innerWidth - 200)) {
+                        if (!el.getAttribute('data-testid') ||
+                            el.getAttribute('data-testid').indexOf('Sidebar') < 0) {
+                            el.style.display = 'none';
+                        }
+                    }
+                }
+            });
+        } catch(e) {}
+    }
+    setTimeout(hideBadges, 500);
+    setTimeout(hideBadges, 1500);
+    setTimeout(hideBadges, 4000);
+    setInterval(hideBadges, 10000);
+    </script>
+    """, height=0)
 
     if "db" not in st.session_state:
         st.session_state["db"] = Database()

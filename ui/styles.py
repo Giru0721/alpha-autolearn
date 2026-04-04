@@ -26,24 +26,11 @@ CUSTOM_CSS = """
     .stTabs [data-baseweb="tab-panel"] { padding-top: 16px; }
     .stButton > button { width: 100%; border-radius: 8px; }
 
-    /* ===== ツールバー・フッター非表示（サイドバーボタンは残す）===== */
+    /* ===== 右上ツールバー・フッター非表示 ===== */
     [data-testid="stToolbar"] { display: none !important; }
-    #MainMenu { display: none !important; }
     footer { display: none !important; }
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stStatusWidget"] { display: none !important; }
-    /* 右下 Streamlit Cloud バッジ・デプロイボタン */
-    [data-testid="manage-app-button"] { display: none !important; }
-    .viewerBadge_container__r5tak { display: none !important; }
-    [data-testid="stAppDeployButton"] { display: none !important; }
-    .stDeployButton { display: none !important; }
-    ._container_gzau3_1 { display: none !important; }
-    ._profileContainer_gzau3_53 { display: none !important; }
-    /* 右下固定アイコン全般 */
-    div[class*="StatusWidget"] { display: none !important; }
-    div[class*="viewerBadge"] { display: none !important; }
-    a[href*="streamlit.io/cloud"] { display: none !important; }
-    a[href*="share.streamlit.io"] { display: none !important; }
 
     /* ===== スマホ対応 (768px以下) ===== */
     @media (max-width: 768px) {
