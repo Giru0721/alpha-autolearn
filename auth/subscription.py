@@ -98,6 +98,21 @@ class AuthManager:
             except sqlite3.OperationalError:
                 pass  # 既に存在する場合
 
+    def _ensure_admin(self):
+        """管理者アカウントの自動作成"""
+        if not ADMIN_EMAIL:
+            return
+        user = self.get_user(ADMIN_EMAIL)
+        if not user:
+            self.register(ADMIN_EMAIL, ADMIN_PASSWORD, "管理者")
+            with self._connect() as conn:
+                conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
+                             (ADMIN_EMAIL.lower(),))
+        elif user.get("role") != "admin":
+            with self._connect() as conn:
+                conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
+                             (ADMIN_EMAIL.lower(),))
+
     def register(self, email: str, password: str, display_name: str = "") -> dict:
         salt = secrets.token_hex(16)
         pw_hash = _hash_password(password, salt)
