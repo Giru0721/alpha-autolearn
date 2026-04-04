@@ -6,11 +6,13 @@ import numpy as np
 from datetime import datetime
 
 from config import DEFAULT_TICKER, PERIOD_OPTIONS, NEWSAPI_KEY
-from ui.i18n import TEXTS
+from ui.i18n import TEXTS, T, get_lang
 from ui.charts import (create_candlestick_chart, create_technical_chart, create_sentiment_gauge,
                         create_feature_importance_chart, create_weight_donut, create_error_timeline,
                         create_actual_vs_predicted, create_scenario_forecast_chart)
 from ui.components import render_prediction_card, render_metrics_row, render_model_info
+from ui.portfolio import render_portfolio_page
+from ui.backtest_ui import render_backtest_page
 from data.fetcher_yfinance import fetch_ohlcv, fetch_ticker_info
 from data.feature_engineer import build_feature_matrix, add_technical_indicators
 from models.ensemble import EnsemblePredictor
@@ -31,18 +33,24 @@ def _normalize_ticker(raw: str) -> str:
 
 
 def render_sidebar():
-    from ui.auth_ui import render_user_badge
+    from ui.auth_ui import render_user_badge, render_language_selector
     show_subscription = False
+    show_admin = False
     with st.sidebar:
         render_user_badge()
         st.title(TEXTS["sidebar_title"])
         raw_ticker = st.text_input(TEXTS["ticker_input"], value=DEFAULT_TICKER,
                                    help=TEXTS["ticker_help"])
-        period_label = st.selectbox(TEXTS["period_select"], options=list(PERIOD_OPTIONS.keys()), index=2)
-        period = PERIOD_OPTIONS[period_label]
+        lang = get_lang()
+        if lang == "ja":
+            period_label = st.selectbox(TEXTS["period_select"], options=list(PERIOD_OPTIONS.keys()), index=2)
+            period = PERIOD_OPTIONS[period_label]
+        else:
+            en_periods = {"6 months": "6mo", "1 year": "1y", "2 years": "2y", "5 years": "5y", "10 years": "10y"}
+            period_label = st.selectbox(TEXTS["period_select"], options=list(en_periods.keys()), index=2)
+            period = en_periods[period_label]
         horizon = st.slider(TEXTS["horizon_label"], min_value=1, max_value=365,
-                            value=5, step=1, help="1〜365日後を自由に指定")
-        st.caption(f"📅 {horizon}日後を予測")
+                            value=5, step=1)
         st.divider()
         st.markdown(f"**{TEXTS['data_sources']}**")
         enable_fred = st.checkbox(TEXTS["enable_fred"], value=True)
@@ -55,14 +63,23 @@ def render_sidebar():
         predict_clicked = st.button(TEXTS["predict_button"], type="primary", use_container_width=True)
         adjust_clicked = st.button(TEXTS["auto_adjust"], use_container_width=True)
         st.divider()
-        show_subscription = st.button("📋 プラン管理", use_container_width=True)
+        show_subscription = st.button("Plan" if lang == "en" else "プラン管理",
+                                       use_container_width=True)
+        # Admin button
+        user = st.session_state.get("user", {})
+        if user.get("role") == "admin":
+            show_admin = st.button("Admin Panel" if lang == "en" else "管理者パネル",
+                                    use_container_width=True)
+        st.divider()
+        render_language_selector()
         if "last_updated" in st.session_state:
             st.caption(f"{TEXTS['last_updated']}: {st.session_state['last_updated']}")
     ticker = _normalize_ticker(raw_ticker)
     return {"ticker": ticker, "period": period, "horizon": horizon,
             "enable_fred": enable_fred, "enable_trends": enable_trends,
             "enable_news": enable_news, "predict_clicked": predict_clicked,
-            "adjust_clicked": adjust_clicked, "show_subscription": show_subscription}
+            "adjust_clicked": adjust_clicked, "show_subscription": show_subscription,
+            "show_admin": show_admin}
 
 
 def render_main_content(settings):
@@ -143,7 +160,8 @@ def render_main_content(settings):
         syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
         render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
     tabs = st.tabs([TEXTS["tab_price"], TEXTS["tab_technical"], TEXTS["tab_scenario"],
-                    TEXTS["tab_prediction"], TEXTS["tab_performance"], TEXTS["tab_settings"]])
+                    TEXTS["tab_prediction"], TEXTS["tab_performance"],
+                    TEXTS["tab_portfolio"], TEXTS["tab_backtest"], TEXTS["tab_settings"]])
     with tabs[0]:
         st.plotly_chart(create_candlestick_chart(tech_df, prediction), use_container_width=True)
     with tabs[1]:
@@ -222,6 +240,10 @@ def render_main_content(settings):
                          "mae_prophet": "Prophet誤差", "mae_xgboost": "XGBoost誤差", "reason": "調整理由"}
             st.dataframe(wh[["created_at", "prophet_weight", "xgboost_weight", "mae_prophet", "mae_xgboost", "reason"]].head(10).rename(columns=wh_rename), use_container_width=True)
     with tabs[5]:
+        render_portfolio_page()
+    with tabs[6]:
+        render_backtest_page(ticker, settings["period"], settings["horizon"])
+    with tabs[7]:
         st.markdown("### API設定")
         nk = st.text_input(TEXTS["newsapi_key"], value=NEWSAPI_KEY, type="password", help=TEXTS["newsapi_help"])
         if nk:

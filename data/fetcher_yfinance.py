@@ -68,6 +68,16 @@ def fetch_ticker_info(ticker: str) -> dict:
                 "exchange": "不明", "market_cap": None}
 
 
+def get_current_price(ticker: str) -> float:
+    """現在価格を取得"""
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        return info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose", 0)
+    except Exception:
+        return 0
+
+
 def fetch_close_on_date(ticker: str, date: str) -> float | None:
     try:
         target = pd.Timestamp(date)

@@ -76,3 +76,17 @@ PERIOD_OPTIONS = {
     "5年": "5y",
     "10年": "10y",
 }
+
+# Admin設定
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "chinjyao0326@gmail.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin2024!")
+
+# メール通知設定 (SMTP)
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "")
+
+# 言語設定
+DEFAULT_LANGUAGE = os.environ.get("DEFAULT_LANGUAGE", "ja")

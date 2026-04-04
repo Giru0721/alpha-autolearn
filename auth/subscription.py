@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 import stripe
 
-from config import DATABASE_PATH
+from config import DATABASE_PATH, ADMIN_EMAIL, ADMIN_PASSWORD
 
 # Stripe設定（環境変数から取得）
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
@@ -19,28 +19,32 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 # プラン定義
 PLANS = {
     "free": {
-        "name": "無料プラン",
-        "price": 0,
-        "predictions_per_day": 3,
-        "horizons_max": 30,
+        "name": "無料プラン", "name_en": "Free",
+        "price": 0, "predictions_per_day": 3, "horizons_max": 30,
         "features": ["基本テクニカル指標", "価格チャート", "5日後まで予測"],
+        "features_en": ["Basic indicators", "Price chart", "5-day forecast"],
         "stripe_price_id": None,
     },
     "pro": {
-        "name": "プロプラン",
-        "price": 980,
-        "predictions_per_day": 30,
-        "horizons_max": 365,
-        "features": ["全テクニカル指標", "FRED経済データ", "1年予測", "シナリオ分析", "自動調整"],
+        "name": "プロプラン", "name_en": "Pro",
+        "price": 980, "predictions_per_day": 30, "horizons_max": 365,
+        "features": ["全テクニカル指標", "FRED経済データ", "1年予測", "シナリオ分析", "自動調整", "ポートフォリオ管理"],
+        "features_en": ["All indicators", "FRED data", "1-year forecast", "Scenarios", "Auto-adjust", "Portfolio"],
         "stripe_price_id": os.environ.get("STRIPE_PRO_PRICE_ID", ""),
     },
     "premium": {
-        "name": "プレミアムプラン",
-        "price": 2980,
-        "predictions_per_day": -1,  # 無制限
-        "horizons_max": 365,
-        "features": ["全プロ機能", "ニュースセンチメント", "Googleトレンド", "API連携", "優先サポート"],
+        "name": "プレミアムプラン", "name_en": "Premium",
+        "price": 2980, "predictions_per_day": -1, "horizons_max": 365,
+        "features": ["全プロ機能", "ニュースセンチメント", "Googleトレンド", "バックテスト", "API連携", "優先サポート"],
+        "features_en": ["All Pro features", "News sentiment", "Google Trends", "Backtesting", "API", "Priority support"],
         "stripe_price_id": os.environ.get("STRIPE_PREMIUM_PRICE_ID", ""),
+    },
+    "admin": {
+        "name": "管理者", "name_en": "Admin",
+        "price": 0, "predictions_per_day": -1, "horizons_max": 365,
+        "features": ["全機能無制限", "管理者パネル", "ユーザー管理"],
+        "features_en": ["Unlimited access", "Admin panel", "User management"],
+        "stripe_price_id": None,
     },
 }
 
@@ -53,6 +57,7 @@ class AuthManager:
     def __init__(self, db_path: str = DATABASE_PATH):
         self.db_path = db_path
         self._init_auth_tables()
+        self._ensure_admin()
 
     @contextmanager
     def _connect(self):
@@ -74,6 +79,7 @@ class AuthManager:
                     password_hash   TEXT NOT NULL,
                     salt            TEXT NOT NULL,
                     display_name    TEXT,
+                    role            TEXT DEFAULT 'user',
                     plan            TEXT DEFAULT 'free',
                     stripe_customer_id TEXT,
                     stripe_subscription_id TEXT,
@@ -86,16 +92,24 @@ class AuthManager:
                 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
                 CREATE INDEX IF NOT EXISTS idx_users_stripe ON users(stripe_customer_id);
             """)
+            # role列の追加（既存DBの互換性）
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
+            except sqlite3.OperationalError:
+                pass  # 既に存在する場合
 
     def register(self, email: str, password: str, display_name: str = "") -> dict:
         salt = secrets.token_hex(16)
         pw_hash = _hash_password(password, salt)
         with self._connect() as conn:
             try:
+                role = "admin" if email.lower().strip() == ADMIN_EMAIL.lower() else "user"
+                plan = "admin" if role == "admin" else "free"
                 conn.execute("""
-                    INSERT INTO users (email, password_hash, salt, display_name)
-                    VALUES (?, ?, ?, ?)
-                """, (email.lower().strip(), pw_hash, salt, display_name or email.split("@")[0]))
+                    INSERT INTO users (email, password_hash, salt, display_name, role, plan)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (email.lower().strip(), pw_hash, salt,
+                      display_name or email.split("@")[0], role, plan))
                 return {"success": True, "message": "登録完了"}
             except sqlite3.IntegrityError:
                 return {"success": False, "message": "このメールアドレスは既に登録されています"}
@@ -120,8 +134,9 @@ class AuthManager:
         user = self.get_user(email)
         if not user:
             return PLANS["free"]
+        if user.get("role") == "admin":
+            return PLANS["admin"]
         plan_key = user.get("plan", "free")
-        # サブスクの有効期限チェック
         expires = user.get("plan_expires_at")
         if plan_key != "free" and expires:
             if datetime.fromisoformat(expires) < datetime.now():
@@ -134,6 +149,8 @@ class AuthManager:
         user = self.get_user(email)
         if not user:
             return {"allowed": False, "remaining": 0, "message": "ログインが必要です"}
+        if user.get("role") == "admin":
+            return {"allowed": True, "remaining": -1, "message": "管理者: 無制限"}
         plan = self.get_plan(email)
         limit = plan["predictions_per_day"]
         if limit == -1:
@@ -165,6 +182,25 @@ class AuthManager:
                 updated_at=datetime('now') WHERE email=?
             """, (plan, expires_at, stripe_sub_id, email.lower()))
 
+    def get_all_users(self) -> list:
+        """全ユーザー一覧（管理者用）"""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, email, display_name, role, plan, predictions_today, "
+                "predictions_date, created_at FROM users ORDER BY created_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_user_plan(self, email: str, plan: str):
+        """管理者によるプラン変更"""
+        self._update_plan(email, plan, expires_at="2099-12-31T23:59:59")
+
+    def delete_user(self, email: str):
+        """ユーザー削除（管理者用）"""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM users WHERE email=? AND role != 'admin'",
+                         (email.lower(),))
+
     def create_checkout_session(self, email: str, plan_key: str, success_url: str,
                                 cancel_url: str) -> str | None:
         """Stripe Checkout セッション作成"""
@@ -192,6 +228,8 @@ class AuthManager:
             success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
             cancel_url=cancel_url,
             metadata={"email": email, "plan": plan_key},
+            allow_promotion_codes=True,
+            locale="ja",
         )
         return session.url
 

@@ -23,6 +23,7 @@ from PIL import Image
 from ui.styles import CUSTOM_CSS, VIEWPORT_META
 from ui.layout import render_sidebar, render_main_content
 from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_page
+from ui.admin import render_admin_page
 from ui.i18n import TEXTS
 from feedback.database import Database
 
@@ -51,8 +52,10 @@ def main():
     # メインアプリ
     settings = render_sidebar()
 
-    # サブスクリプションタブが選ばれた場合
-    if settings.get("show_subscription"):
+    # ルーティング
+    if settings.get("show_admin"):
+        render_admin_page()
+    elif settings.get("show_subscription"):
         render_subscription_page()
     else:
         render_main_content(settings)
