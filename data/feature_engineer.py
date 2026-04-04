@@ -1,60 +1,133 @@
-"""テクニカル指標算出・特徴量マトリクス構築"""
+"""テクニカル指標算出・特徴量マトリクス構築 (pandas/numpy のみ)"""
 
 import pandas as pd
 import numpy as np
-import pandas_ta as ta
 
+
+# === TA ヘルパー関数 (pandas-ta 不要) ===
+
+def _sma(series, length):
+    return series.rolling(window=length, min_periods=length).mean()
+
+
+def _ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
+
+
+def _rsi(series, length=14):
+    delta = series.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+def _macd(series, fast=12, slow=26, signal=9):
+    ema_fast = _ema(series, fast)
+    ema_slow = _ema(series, slow)
+    macd_line = ema_fast - ema_slow
+    signal_line = _ema(macd_line, signal)
+    hist = macd_line - signal_line
+    return macd_line, signal_line, hist
+
+
+def _bbands(series, length=20, std=2):
+    mid = _sma(series, length)
+    rolling_std = series.rolling(window=length, min_periods=length).std()
+    upper = mid + std * rolling_std
+    lower = mid - std * rolling_std
+    bandwidth = (upper - lower) / mid.replace(0, np.nan)
+    pct = (series - lower) / (upper - lower).replace(0, np.nan)
+    return lower, mid, upper, bandwidth, pct
+
+
+def _adx(high, low, close, length=14):
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / length, min_periods=length, adjust=False).mean() / atr.replace(0, np.nan))
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / length, min_periods=length, adjust=False).mean() / atr.replace(0, np.nan))
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+    return adx, plus_di, minus_di
+
+
+def _stoch(high, low, close, k_period=14, d_period=3):
+    lowest_low = low.rolling(window=k_period, min_periods=k_period).min()
+    highest_high = high.rolling(window=k_period, min_periods=k_period).max()
+    k = 100 * (close - lowest_low) / (highest_high - lowest_low).replace(0, np.nan)
+    d = _sma(k, d_period)
+    return k, d
+
+
+def _atr(high, low, close, length=14):
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / length, min_periods=length, adjust=False).mean()
+
+
+def _obv(close, volume):
+    direction = np.sign(close.diff())
+    direction.iloc[0] = 0
+    return (volume * direction).cumsum()
+
+
+# === メイン関数 ===
 
 def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
     # === 基本テクニカル ===
-    out["RSI_14"] = ta.rsi(out["Close"], length=14)
-    out["RSI_7"] = ta.rsi(out["Close"], length=7)
-    macd = ta.macd(out["Close"], fast=12, slow=26, signal=9)
-    if macd is not None:
-        out["MACD"] = macd.iloc[:, 0]
-        out["MACD_hist"] = macd.iloc[:, 1]
-        out["MACD_signal"] = macd.iloc[:, 2]
-    bb = ta.bbands(out["Close"], length=20, std=2)
-    if bb is not None:
-        out["BB_lower"] = bb.iloc[:, 0]
-        out["BB_mid"] = bb.iloc[:, 1]
-        out["BB_upper"] = bb.iloc[:, 2]
-        out["BB_bandwidth"] = bb.iloc[:, 3] if bb.shape[1] > 3 else None
-        out["BB_pct"] = bb.iloc[:, 4] if bb.shape[1] > 4 else None
-    out["SMA_20"] = ta.sma(out["Close"], length=20)
-    out["SMA_50"] = ta.sma(out["Close"], length=50)
-    out["SMA_200"] = ta.sma(out["Close"], length=200)
-    out["EMA_12"] = ta.ema(out["Close"], length=12)
-    out["EMA_26"] = ta.ema(out["Close"], length=26)
+    out["RSI_14"] = _rsi(out["Close"], 14)
+    out["RSI_7"] = _rsi(out["Close"], 7)
+    macd_line, macd_signal, macd_hist = _macd(out["Close"], 12, 26, 9)
+    out["MACD"] = macd_line
+    out["MACD_hist"] = macd_hist
+    out["MACD_signal"] = macd_signal
+    bb_lower, bb_mid, bb_upper, bb_bw, bb_pct = _bbands(out["Close"], 20, 2)
+    out["BB_lower"] = bb_lower
+    out["BB_mid"] = bb_mid
+    out["BB_upper"] = bb_upper
+    out["BB_bandwidth"] = bb_bw
+    out["BB_pct"] = bb_pct
+    out["SMA_20"] = _sma(out["Close"], 20)
+    out["SMA_50"] = _sma(out["Close"], 50)
+    out["SMA_200"] = _sma(out["Close"], 200)
+    out["EMA_12"] = _ema(out["Close"], 12)
+    out["EMA_26"] = _ema(out["Close"], 26)
 
     # === ADX（トレンド強度） ===
-    adx = ta.adx(out["High"], out["Low"], out["Close"], length=14)
-    if adx is not None:
-        out["ADX_14"] = adx.iloc[:, 0]
-        out["DI_plus"] = adx.iloc[:, 1]
-        out["DI_minus"] = adx.iloc[:, 2]
+    adx_val, di_plus, di_minus = _adx(out["High"], out["Low"], out["Close"], 14)
+    out["ADX_14"] = adx_val
+    out["DI_plus"] = di_plus
+    out["DI_minus"] = di_minus
 
     # === ストキャスティクス ===
-    stoch = ta.stoch(out["High"], out["Low"], out["Close"])
-    if stoch is not None:
-        out["STOCH_K"] = stoch.iloc[:, 0]
-        out["STOCH_D"] = stoch.iloc[:, 1]
+    stoch_k, stoch_d = _stoch(out["High"], out["Low"], out["Close"])
+    out["STOCH_K"] = stoch_k
+    out["STOCH_D"] = stoch_d
 
     # === ATR（ボラティリティ） ===
-    atr = ta.atr(out["High"], out["Low"], out["Close"], length=14)
-    if atr is not None:
-        out["ATR_14"] = atr
-        out["ATR_pct"] = atr / out["Close"].replace(0, np.nan)
+    atr = _atr(out["High"], out["Low"], out["Close"], 14)
+    out["ATR_14"] = atr
+    out["ATR_pct"] = atr / out["Close"].replace(0, np.nan)
 
     # === OBV（出来高トレンド） ===
     if "Volume" in out.columns:
-        obv = ta.obv(out["Close"], out["Volume"])
-        if obv is not None:
-            out["OBV"] = obv
-            out["OBV_SMA_20"] = ta.sma(obv, length=20)
-        out["Volume_SMA_20"] = ta.sma(out["Volume"], length=20)
+        obv = _obv(out["Close"], out["Volume"])
+        out["OBV"] = obv
+        out["OBV_SMA_20"] = _sma(obv, 20)
+        out["Volume_SMA_20"] = _sma(out["Volume"], 20)
         out["Volume_ratio"] = out["Volume"] / out["Volume_SMA_20"].replace(0, np.nan)
 
     # === リターン（複数期間） ===
