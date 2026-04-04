@@ -19,17 +19,21 @@ if os.path.exists(_cert_home):
     os.environ.setdefault("REQUESTS_CA_BUNDLE", _cert_home)
 
 import streamlit as st
+from PIL import Image
 from ui.styles import CUSTOM_CSS, VIEWPORT_META
 from ui.layout import render_sidebar, render_main_content
 from ui.auth_ui import render_auth_page, render_user_badge, render_subscription_page
 from ui.i18n import TEXTS
 from feedback.database import Database
 
+_ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
+
 
 def main():
+    _icon = Image.open(_ICON_PATH) if os.path.exists(_ICON_PATH) else TEXTS["app_icon"]
     st.set_page_config(
         page_title=TEXTS["app_title"],
-        page_icon=TEXTS["app_icon"],
+        page_icon=_icon,
         layout="wide",
         initial_sidebar_state="collapsed",
     )
