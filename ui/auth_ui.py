@@ -186,6 +186,24 @@ def render_subscription_page():
         c1.metric("Plan" if lang == "en" else "現在のプラン", plan_name)
         c2.metric("Remaining" if lang == "en" else "残り予測回数", remaining)
 
+        # 決済済みだがプラン未反映の場合の同期ボタン
+        if current_key == "free":
+            st.divider()
+            if st.button("💳 " + ("Already paid? Sync plan" if lang == "en"
+                                   else "決済済みの方はこちら（プラン同期）"),
+                         key="sync_stripe"):
+                synced = auth.sync_plan_from_stripe(email)
+                if synced:
+                    user_data = auth.get_user(email)
+                    if user_data:
+                        st.session_state["user"] = user_data
+                    st.toast(("Plan synced!" if lang == "en"
+                              else "プランを同期しました！") + " 🎉")
+                    st.rerun()
+                else:
+                    st.error("No payment found" if lang == "en"
+                             else "決済履歴が見つかりませんでした")
+
 
 def render_user_badge():
     """サイドバー上部のユーザーバッジ"""

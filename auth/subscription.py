@@ -305,12 +305,39 @@ class AuthManager:
                     expires = (datetime.now() + timedelta(days=31)).isoformat()
                     self._update_plan(email, plan_key, expires_at=expires)
                     return {"email": email, "plan": plan_key}
-            # 非同期決済（コンビニ等）の場合は未払い
             return None
         except Exception as e:
-            # エラーログ（Streamlit Cloud で確認可能）
             print(f"[Stripe verify error] session_id={session_id} error={e}")
             return None
+
+    def sync_plan_from_stripe(self, email: str) -> str | None:
+        """Stripeの決済履歴からプランを同期（過去の決済も反映）"""
+        api_key = self._get_stripe_key()
+        if not api_key:
+            return None
+        stripe.api_key = api_key
+        user = self.get_user(email)
+        if not user:
+            return None
+        customer_id = user.get("stripe_customer_id")
+        if not customer_id:
+            return None
+        try:
+            sessions = stripe.checkout.Session.list(
+                customer=customer_id,
+                status="complete",
+                limit=10,
+            )
+            for s in sessions.data:
+                if s.payment_status == "paid":
+                    plan_key = (s.metadata or {}).get("plan", "")
+                    if plan_key and plan_key in PLANS:
+                        expires = (datetime.now() + timedelta(days=31)).isoformat()
+                        self._update_plan(email, plan_key, expires_at=expires)
+                        return plan_key
+        except Exception as e:
+            print(f"[Stripe sync error] {e}")
+        return None
 
     def handle_webhook(self, payload: bytes, sig_header: str) -> bool:
         """Stripe Webhook処理"""

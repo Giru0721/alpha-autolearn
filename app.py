@@ -95,13 +95,20 @@ def _handle_checkout_return():
             st.session_state["user_email"] = email
             st.session_state["user"] = user
         st.session_state["_checkout_success"] = True
-
-    # 決済関連パラメータを除去（u, t は保持）
-    for key in ["session_id", "plan", "pt"]:
-        try:
-            del st.query_params[key]
-        except Exception:
-            pass
+        # 決済関連パラメータを除去（u, t は保持）
+        for key in ["session_id", "plan", "pt"]:
+            try:
+                del st.query_params[key]
+            except Exception:
+                pass
+        st.rerun()
+    else:
+        # 検証失敗でもパラメータは除去
+        for key in ["session_id", "plan", "pt"]:
+            try:
+                del st.query_params[key]
+            except Exception:
+                pass
 
 
 def main():
