@@ -55,15 +55,28 @@ class EnsemblePredictor:
         else:
             xgb_price, xgb_std = current_price, 0.05
 
-        # Ensemble
+        # Ensemble（方向一致度による確信度調整）
         w_p, w_x = self.weights["prophet"], self.weights["xgboost"]
         ensemble_price = w_p * prophet_price + w_x * xgb_price
         predicted_return = (ensemble_price - current_price) / current_price
+
+        # 両モデルの方向が一致 → 確信度高、不一致 → 中立に寄せる
+        prophet_dir = 1 if prophet_price > current_price else -1
+        xgb_dir = 1 if xgb_price > current_price else -1
+        if prophet_dir == xgb_dir:
+            # 方向一致: 予測を強める
+            predicted_return *= 1.1
+            ensemble_price = current_price * (1 + predicted_return)
+        else:
+            # 方向不一致: 中立に寄せる（小さい動きに抑制）
+            predicted_return *= 0.5
+            ensemble_price = current_price * (1 + predicted_return)
+
         xgb_lower = ensemble_price - 2 * xgb_std * current_price
         xgb_upper = ensemble_price + 2 * xgb_std * current_price
         conf_lower = min(prophet_lower or xgb_lower, xgb_lower)
         conf_upper = max(prophet_upper or xgb_upper, xgb_upper)
-        direction = "bullish" if predicted_return > 0.005 else ("bearish" if predicted_return < -0.005 else "neutral")
+        direction = "bullish" if predicted_return > 0.003 else ("bearish" if predicted_return < -0.003 else "neutral")
 
         # Save prediction
         try:

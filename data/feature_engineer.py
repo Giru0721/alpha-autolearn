@@ -159,6 +159,35 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     if "SMA_20" in out.columns and "SMA_50" in out.columns:
         out["SMA20_above_50"] = (out["SMA_20"] > out["SMA_50"]).astype(float)
 
+    # === 方向予測強化特徴量 ===
+    # モメンタム確認（複数期間のリターンが同方向か）
+    r1 = out["Close"].pct_change(1)
+    r5 = out["Close"].pct_change(5)
+    r20 = out["Close"].pct_change(20)
+    out["Momentum_align"] = ((r1 > 0).astype(float) + (r5 > 0).astype(float)
+                             + (r20 > 0).astype(float)) / 3.0
+    # RSI反転ゾーン
+    out["RSI_oversold"] = (out["RSI_14"] < 30).astype(float)
+    out["RSI_overbought"] = (out["RSI_14"] > 70).astype(float)
+    # MACD方向転換
+    out["MACD_cross_up"] = ((macd_hist > 0) & (macd_hist.shift(1) <= 0)).astype(float)
+    out["MACD_cross_down"] = ((macd_hist < 0) & (macd_hist.shift(1) >= 0)).astype(float)
+    # ボリンジャーバンド反発
+    out["BB_squeeze"] = (bb_bw < bb_bw.rolling(50).quantile(0.2)).astype(float)
+    # 直近N日間の勝敗比率（上昇日 / 全体）
+    up_days = (r1 > 0).astype(float)
+    out["WinRatio_5d"] = up_days.rolling(5).mean()
+    out["WinRatio_10d"] = up_days.rolling(10).mean()
+    out["WinRatio_20d"] = up_days.rolling(20).mean()
+    # 出来高急増（方向転換のサイン）
+    if "Volume_ratio" in out.columns:
+        out["Vol_spike"] = (out["Volume_ratio"] > 2.0).astype(float)
+    # 価格変動率の加速・減速
+    out["Return_accel"] = r1 - r1.shift(1)
+    # トレンド強度×方向
+    if "ADX_14" in out.columns:
+        out["Trend_strength_dir"] = out["ADX_14"] * np.sign(out["DI_plus"] - out["DI_minus"])
+
     # === 曜日・月（季節性） ===
     if hasattr(out.index, 'dayofweek'):
         out["DayOfWeek"] = out.index.dayofweek.astype(float)

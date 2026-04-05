@@ -40,7 +40,7 @@ class BacktestEngine:
             return {"error": "テスト期間が短すぎます"}
 
         predictions = []
-        step = max(1, len(test_df) // 20)
+        step = max(1, len(test_df) // 40)
         total_steps = len(range(0, len(test_df), step))
         current_step = 0
 
@@ -93,6 +93,15 @@ class BacktestEngine:
             ensemble_price = (weights["prophet"] * prophet_price +
                               weights["xgboost"] * xgb_price)
             ensemble_return = (ensemble_price - current_price) / current_price
+
+            # 方向一致度補正
+            prophet_dir = 1 if prophet_price > current_price else -1
+            xgb_dir = 1 if xgb_price > current_price else -1
+            if prophet_dir == xgb_dir:
+                ensemble_return *= 1.1
+            else:
+                ensemble_return *= 0.5
+            ensemble_price = current_price * (1 + ensemble_return)
 
             predictions.append({
                 "date": test_point.name,
