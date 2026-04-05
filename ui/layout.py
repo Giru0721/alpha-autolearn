@@ -90,6 +90,14 @@ def _render_vote_section(db, ticker: str, info: dict):
             st.rerun()
     if is_guest:
         st.caption("投票するにはログインしてください" if lang == "ja" else "Log in to vote")
+    elif not is_guest:
+        bonus = db.get_bonus_predictions(email)
+        if bonus > 0:
+            st.success(f"🎯 ボーナス予測: {bonus}回（投票的中報酬）" if lang == "ja"
+                       else f"🎯 Bonus predictions: {bonus} (vote reward)")
+        else:
+            st.caption("的中でボーナス予測+1回" if lang == "ja"
+                       else "Correct vote = +1 bonus prediction")
 
 
 def _normalize_ticker(raw: str) -> str:
@@ -171,6 +179,13 @@ def render_main_content(settings):
     if not ticker:
         st.warning(TEXTS["no_data"]); return
     db = st.session_state["db"]
+    # 過去の投票を判定してボーナス付与
+    email = st.session_state.get("user_email", "guest")
+    if email != "guest" and not st.session_state.get("_votes_resolved"):
+        awarded = db.resolve_pending_votes(email)
+        st.session_state["_votes_resolved"] = True
+        if awarded > 0:
+            st.toast(f"投票的中！ボーナス予測 +{awarded}回 獲得！")
     with st.spinner(TEXTS["fetching_data"]):
         price_df = fetch_ohlcv(ticker, settings["period"])
     if price_df.empty:
@@ -223,16 +238,19 @@ def render_main_content(settings):
     if settings["predict_clicked"]:
         # プラン制限チェック（ゲスト含む全ユーザー対象）
         email = st.session_state.get("user_email", "guest")
+        use_bonus = False
         if email != "guest":
             from ui.auth_ui import get_auth_manager
             auth = get_auth_manager()
-            check = auth.check_prediction_limit(email)
+            bonus = db.get_bonus_predictions(email)
+            check = auth.check_prediction_limit(email, bonus_available=bonus)
             if not check["allowed"]:
                 st.warning(check["message"])
                 if prediction:
                     syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
                     render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
                 return
+            use_bonus = check.get("use_bonus", False)
         else:
             # ゲストは1日3回まで（無料プランと同等）
             guest_count = st.session_state.get("_guest_predict_count", 0)
@@ -261,7 +279,11 @@ def render_main_content(settings):
             st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             # 予測カウント
             if email != "guest":
-                auth.increment_prediction_count(email)
+                if use_bonus:
+                    db.use_bonus_prediction(email)
+                    st.toast("投票ボーナスを使用しました！")
+                else:
+                    auth.increment_prediction_count(email)
             else:
                 today = datetime.now().strftime("%Y-%m-%d")
                 st.session_state["_guest_predict_date"] = today

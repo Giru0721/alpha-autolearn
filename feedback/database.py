@@ -106,12 +106,22 @@ class Database:
                     ticker      TEXT NOT NULL,
                     vote_date   TEXT NOT NULL,
                     direction   TEXT NOT NULL CHECK(direction IN ('up', 'down')),
+                    resolved    INTEGER DEFAULT 0,
+                    correct     INTEGER,
+                    reward_used INTEGER DEFAULT 0,
                     created_at  TEXT DEFAULT (datetime('now')),
                     UNIQUE(email, ticker, vote_date)
                 );
                 CREATE INDEX IF NOT EXISTS idx_votes_ticker_date
                     ON stock_votes(ticker, vote_date);
             """)
+            # 既存テーブルに列追加（互換性）
+            for col, default in [("resolved", "0"), ("correct", "NULL"),
+                                 ("reward_used", "0")]:
+                try:
+                    conn.execute(f"ALTER TABLE stock_votes ADD COLUMN {col} INTEGER DEFAULT {default}")
+                except Exception:
+                    pass
 
     # ===== 投票機能（東証9:00 JSTでリセット）=====
     def cast_vote(self, email: str, ticker: str, direction: str) -> bool:
@@ -159,6 +169,69 @@ class Database:
                 WHERE email=? AND ticker=? AND vote_date=?
             """, (email.lower(), ticker, today)).fetchone()
             return row["direction"] if row else None
+
+    def resolve_pending_votes(self, email: str) -> int:
+        """過去の未解決投票を判定し、正解ならボーナス付与。付与数を返す。"""
+        today = trading_session_date()
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT id, ticker, vote_date, direction FROM stock_votes
+                WHERE email=? AND resolved=0 AND vote_date < ?
+            """, (email.lower(), today)).fetchall()
+        if not rows:
+            return 0
+        from data.fetcher_yfinance import fetch_ohlcv
+        awarded = 0
+        for row in rows:
+            vid, ticker, vdate, direction = row["id"], row["ticker"], row["vote_date"], row["direction"]
+            try:
+                import pandas as _pd
+                dt = _pd.Timestamp(vdate)
+                import yfinance as _yf
+                data = _yf.download(ticker, start=dt.strftime("%Y-%m-%d"),
+                                    end=(dt + _pd.Timedelta(days=5)).strftime("%Y-%m-%d"),
+                                    progress=False)
+                if data.empty:
+                    continue
+                day = data[data.index.normalize() == dt]
+                if day.empty:
+                    day = data.iloc[:1]
+                o = float(day["Open"].iloc[0])
+                c = float(day["Close"].iloc[0])
+                actual = "up" if c >= o else "down"
+                correct = 1 if direction == actual else 0
+                with self._connect() as conn:
+                    conn.execute("UPDATE stock_votes SET resolved=1, correct=? WHERE id=?",
+                                 (correct, vid))
+                if correct:
+                    awarded += 1
+            except Exception:
+                with self._connect() as conn:
+                    conn.execute("UPDATE stock_votes SET resolved=1, correct=0 WHERE id=?",
+                                 (vid,))
+        return awarded
+
+    def get_bonus_predictions(self, email: str) -> int:
+        """未使用のボーナス予測回数を取得"""
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT COUNT(*) as cnt FROM stock_votes
+                WHERE email=? AND correct=1 AND reward_used=0
+            """, (email.lower(),)).fetchone()
+            return row["cnt"] or 0
+
+    def use_bonus_prediction(self, email: str) -> bool:
+        """ボーナス予測を1回消費"""
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT id FROM stock_votes
+                WHERE email=? AND correct=1 AND reward_used=0
+                ORDER BY vote_date ASC LIMIT 1
+            """, (email.lower(),)).fetchone()
+            if row:
+                conn.execute("UPDATE stock_votes SET reward_used=1 WHERE id=?", (row["id"],))
+                return True
+            return False
 
     def save_prediction(self, ticker, prediction_date, target_date,
                         horizon_days, current_price, predicted_price,

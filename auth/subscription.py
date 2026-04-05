@@ -184,23 +184,33 @@ class AuthManager:
                 return PLANS["free"]
         return PLANS.get(plan_key, PLANS["free"])
 
-    def check_prediction_limit(self, email: str) -> dict:
-        """予測回数制限チェック"""
+    def check_prediction_limit(self, email: str, bonus_available: int = 0) -> dict:
+        """予測回数制限チェック（ボーナス考慮）"""
         user = self.get_user(email)
         if not user:
-            return {"allowed": False, "remaining": 0, "message": "ログインが必要です"}
+            return {"allowed": False, "remaining": 0, "message": "ログインが必要です",
+                    "use_bonus": False}
         if user.get("role") == "admin":
-            return {"allowed": True, "remaining": -1, "message": "管理者: 無制限"}
+            return {"allowed": True, "remaining": -1, "message": "管理者: 無制限",
+                    "use_bonus": False}
         plan = self.get_plan(email)
         limit = plan["predictions_per_day"]
         if limit == -1:
-            return {"allowed": True, "remaining": -1, "message": "無制限"}
+            return {"allowed": True, "remaining": -1, "message": "無制限",
+                    "use_bonus": False}
         today = datetime.now().strftime("%Y-%m-%d")
         count = user["predictions_today"] if user["predictions_date"] == today else 0
-        if count >= limit:
-            return {"allowed": False, "remaining": 0,
-                    "message": f"本日の予測上限({limit}回)に達しました。プランのアップグレードをご検討ください。"}
-        return {"allowed": True, "remaining": limit - count, "message": "OK"}
+        if count < limit:
+            return {"allowed": True, "remaining": limit - count, "message": "OK",
+                    "use_bonus": False}
+        # 上限到達 → ボーナスがあれば使用許可
+        if bonus_available > 0:
+            return {"allowed": True, "remaining": 0,
+                    "message": "投票ボーナスを使用します",
+                    "use_bonus": True}
+        return {"allowed": False, "remaining": 0,
+                "message": f"本日の予測上限({limit}回)に達しました。投票で的中するとボーナス予測が獲得できます！",
+                "use_bonus": False}
 
     def increment_prediction_count(self, email: str):
         today = datetime.now().strftime("%Y-%m-%d")
