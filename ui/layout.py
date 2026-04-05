@@ -26,62 +26,85 @@ def _render_vote_section(db, ticker: str, info: dict):
     email = st.session_state.get("user_email", "guest")
     summary = db.get_vote_summary(ticker)
     user_vote = db.get_user_vote(email, ticker) if email != "guest" else None
-    name = info.get("name", ticker)
+    total = summary["total"]
+    up_pct = summary["up_pct"]
+    down_pct = summary["down_pct"]
+    vote_text = f"{total} votes" if lang == "en" else f"{total} 票"
 
-    title = f"📊 {name} — 今日上がる？下がる？" if lang == "ja" else f"📊 {name} — Going up or down today?"
-    st.markdown(f"#### {title}")
+    # ボタン状態
+    up_sel = "2px solid #00d26a" if user_vote == "up" else "1px solid #30363d"
+    down_sel = "2px solid #f8312f" if user_vote == "down" else "1px solid #30363d"
+    up_bg = "rgba(0,210,106,0.12)" if user_vote == "up" else "#161b22"
+    down_bg = "rgba(248,49,47,0.12)" if user_vote == "down" else "#161b22"
+    up_check = " ✓" if user_vote == "up" else ""
+    down_check = " ✓" if user_vote == "down" else ""
 
+    # バー幅計算
+    if total > 0:
+        up_w = max(up_pct, 8)
+        down_w = max(down_pct, 8)
+        s = 100 / (up_w + down_w)
+        up_w *= s
+        down_w *= s
+    else:
+        up_w = down_w = 50
+
+    # 全体を1つのHTMLカードとして描画
+    st.markdown(f"""
+    <div style="background:#0d1117; border:1px solid #21262d; border-radius:16px;
+                padding:24px; margin:12px 0 20px 0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+            <div style="font-size:1.05em; font-weight:600; color:#e6edf3; letter-spacing:0.3px;">
+                MARKET SENTIMENT
+            </div>
+            <div style="font-size:0.78em; color:#484f58; background:#161b22;
+                        padding:3px 10px; border-radius:20px;">{vote_text}</div>
+        </div>
+
+        <div style="display:flex; gap:2px; border-radius:10px; overflow:hidden;
+                    height:44px; margin-bottom:18px; position:relative;">
+            <div style="width:{up_w:.1f}%; background:linear-gradient(135deg,#00d26a 0%,#00a854 100%);
+                        display:flex; align-items:center; justify-content:center;
+                        font-weight:700; font-size:1em; color:white; text-shadow:0 1px 3px rgba(0,0,0,0.3);
+                        border-radius:10px 0 0 10px;">
+                {up_pct:.0f}%
+            </div>
+            <div style="width:{down_w:.1f}%; background:linear-gradient(135deg,#f8312f 0%,#c62828 100%);
+                        display:flex; align-items:center; justify-content:center;
+                        font-weight:700; font-size:1em; color:white; text-shadow:0 1px 3px rgba(0,0,0,0.3);
+                        border-radius:0 10px 10px 0;">
+                {down_pct:.0f}%
+            </div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; font-size:0.82em; color:#8b949e; margin-bottom:4px;">
+            <span style="color:#00d26a;">BULL{up_check}</span>
+            <span style="color:#f8312f;">BEAR{down_check}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 投票ボタン（Streamlit native）
     col_up, col_down = st.columns(2)
+    is_guest = (email == "guest")
     with col_up:
-        up_label = "🔺 上がる" if lang == "ja" else "🔺 Up"
-        up_disabled = (email == "guest")
         up_type = "primary" if user_vote == "up" else "secondary"
-        if st.button(up_label, key="vote_up", use_container_width=True,
-                     type=up_type, disabled=up_disabled):
+        up_label = "BULL" if lang == "en" else "強気（上がる）"
+        if st.button(f"▲ {up_label}", key="vote_up", use_container_width=True,
+                     type=up_type, disabled=is_guest):
             db.cast_vote(email, ticker, "up")
             st.rerun()
     with col_down:
-        down_label = "🔻 下がる" if lang == "ja" else "🔻 Down"
-        down_disabled = (email == "guest")
         down_type = "primary" if user_vote == "down" else "secondary"
-        if st.button(down_label, key="vote_down", use_container_width=True,
-                     type=down_type, disabled=down_disabled):
+        down_label = "BEAR" if lang == "en" else "弱気（下がる）"
+        if st.button(f"▼ {down_label}", key="vote_down", use_container_width=True,
+                     type=down_type, disabled=is_guest):
             db.cast_vote(email, ticker, "down")
             st.rerun()
 
-    if email == "guest":
+    if is_guest:
         st.caption("投票するにはログインしてください" if lang == "ja"
                    else "Log in to vote")
-
-    # 投票結果バー
-    total = summary["total"]
-    if total > 0:
-        up_pct = summary["up_pct"]
-        down_pct = summary["down_pct"]
-        up_w = max(up_pct, 5)  # 最小幅5%で見た目を確保
-        down_w = max(down_pct, 5)
-        scale = 100 / (up_w + down_w)
-        up_w *= scale
-        down_w *= scale
-        vote_text = f"{total}票" if lang == "ja" else f"{total} votes"
-        st.markdown(f"""
-        <div style="margin:8px 0 16px 0;">
-            <div style="display:flex; border-radius:8px; overflow:hidden; height:36px; font-weight:bold; font-size:0.9em;">
-                <div style="width:{up_w:.1f}%; background:linear-gradient(90deg,#00d26a,#00b85c);
-                            display:flex; align-items:center; justify-content:center; color:white;">
-                    🔺 {summary['up_pct']:.0f}%
-                </div>
-                <div style="width:{down_w:.1f}%; background:linear-gradient(90deg,#e8413c,#f8312f);
-                            display:flex; align-items:center; justify-content:center; color:white;">
-                    🔻 {summary['down_pct']:.0f}%
-                </div>
-            </div>
-            <div style="text-align:center; color:#8b949e; font-size:0.8em; margin-top:4px;">{vote_text}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.caption("まだ投票がありません。最初の一票を！" if lang == "ja"
-                   else "No votes yet. Be the first!")
     st.divider()
 
 
