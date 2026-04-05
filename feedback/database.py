@@ -89,7 +89,62 @@ class Database:
                     ensemble_mae    REAL,
                     created_at      TEXT DEFAULT (datetime('now'))
                 );
+                CREATE TABLE IF NOT EXISTS stock_votes (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email       TEXT NOT NULL,
+                    ticker      TEXT NOT NULL,
+                    vote_date   TEXT NOT NULL,
+                    direction   TEXT NOT NULL CHECK(direction IN ('up', 'down')),
+                    created_at  TEXT DEFAULT (datetime('now')),
+                    UNIQUE(email, ticker, vote_date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_votes_ticker_date
+                    ON stock_votes(ticker, vote_date);
             """)
+
+    # ===== 投票機能 =====
+    def cast_vote(self, email: str, ticker: str, direction: str) -> bool:
+        """投票を記録（1日1銘柄1票）。成功でTrue。"""
+        with self._connect() as conn:
+            try:
+                conn.execute("""
+                    INSERT OR REPLACE INTO stock_votes (email, ticker, vote_date, direction)
+                    VALUES (?, ?, date('now'), ?)
+                """, (email.lower(), ticker, direction))
+                return True
+            except Exception:
+                return False
+
+    def get_vote_summary(self, ticker: str) -> dict:
+        """本日の投票結果を取得"""
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN direction='up' THEN 1 ELSE 0 END) as up_count,
+                    SUM(CASE WHEN direction='down' THEN 1 ELSE 0 END) as down_count
+                FROM stock_votes
+                WHERE ticker=? AND vote_date=date('now')
+            """, (ticker,)).fetchone()
+            total = row["total"] or 0
+            up = row["up_count"] or 0
+            down = row["down_count"] or 0
+            return {
+                "total": total,
+                "up": up,
+                "down": down,
+                "up_pct": round(up / total * 100, 1) if total > 0 else 50.0,
+                "down_pct": round(down / total * 100, 1) if total > 0 else 50.0,
+            }
+
+    def get_user_vote(self, email: str, ticker: str) -> str | None:
+        """ユーザーの本日の投票を取得"""
+        with self._connect() as conn:
+            row = conn.execute("""
+                SELECT direction FROM stock_votes
+                WHERE email=? AND ticker=? AND vote_date=date('now')
+            """, (email.lower(), ticker)).fetchone()
+            return row["direction"] if row else None
 
     def save_prediction(self, ticker, prediction_date, target_date,
                         horizon_days, current_price, predicted_price,

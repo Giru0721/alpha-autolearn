@@ -20,6 +20,71 @@ from feedback.tracker import PredictionTracker
 from feedback.auto_adjuster import AutoAdjuster
 
 
+def _render_vote_section(db, ticker: str, info: dict):
+    """銘柄の上がる/下がる投票UI"""
+    lang = get_lang()
+    email = st.session_state.get("user_email", "guest")
+    summary = db.get_vote_summary(ticker)
+    user_vote = db.get_user_vote(email, ticker) if email != "guest" else None
+    name = info.get("name", ticker)
+
+    title = f"📊 {name} — 今日上がる？下がる？" if lang == "ja" else f"📊 {name} — Going up or down today?"
+    st.markdown(f"#### {title}")
+
+    col_up, col_down = st.columns(2)
+    with col_up:
+        up_label = "🔺 上がる" if lang == "ja" else "🔺 Up"
+        up_disabled = (email == "guest")
+        up_type = "primary" if user_vote == "up" else "secondary"
+        if st.button(up_label, key="vote_up", use_container_width=True,
+                     type=up_type, disabled=up_disabled):
+            db.cast_vote(email, ticker, "up")
+            st.rerun()
+    with col_down:
+        down_label = "🔻 下がる" if lang == "ja" else "🔻 Down"
+        down_disabled = (email == "guest")
+        down_type = "primary" if user_vote == "down" else "secondary"
+        if st.button(down_label, key="vote_down", use_container_width=True,
+                     type=down_type, disabled=down_disabled):
+            db.cast_vote(email, ticker, "down")
+            st.rerun()
+
+    if email == "guest":
+        st.caption("投票するにはログインしてください" if lang == "ja"
+                   else "Log in to vote")
+
+    # 投票結果バー
+    total = summary["total"]
+    if total > 0:
+        up_pct = summary["up_pct"]
+        down_pct = summary["down_pct"]
+        up_w = max(up_pct, 5)  # 最小幅5%で見た目を確保
+        down_w = max(down_pct, 5)
+        scale = 100 / (up_w + down_w)
+        up_w *= scale
+        down_w *= scale
+        vote_text = f"{total}票" if lang == "ja" else f"{total} votes"
+        st.markdown(f"""
+        <div style="margin:8px 0 16px 0;">
+            <div style="display:flex; border-radius:8px; overflow:hidden; height:36px; font-weight:bold; font-size:0.9em;">
+                <div style="width:{up_w:.1f}%; background:linear-gradient(90deg,#00d26a,#00b85c);
+                            display:flex; align-items:center; justify-content:center; color:white;">
+                    🔺 {summary['up_pct']:.0f}%
+                </div>
+                <div style="width:{down_w:.1f}%; background:linear-gradient(90deg,#e8413c,#f8312f);
+                            display:flex; align-items:center; justify-content:center; color:white;">
+                    🔻 {summary['down_pct']:.0f}%
+                </div>
+            </div>
+            <div style="text-align:center; color:#8b949e; font-size:0.8em; margin-top:4px;">{vote_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.caption("まだ投票がありません。最初の一票を！" if lang == "ja"
+                   else "No votes yet. Be the first!")
+    st.divider()
+
+
 def _normalize_ticker(raw: str) -> str:
     """銘柄コードを正規化。数字4桁なら.Tを自動付与。"""
     t = raw.strip().upper()
@@ -197,6 +262,10 @@ def render_main_content(settings):
     if prediction:
         syms = {"JPY": "\u00a5", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "CNY": "\u00a5"}
         render_prediction_card(prediction, syms.get(info.get("currency", ""), ""))
+
+    # ===== 投票セクション =====
+    _render_vote_section(db, ticker, info)
+
     tabs = st.tabs([TEXTS["tab_price"], TEXTS["tab_technical"], TEXTS["tab_scenario"],
                     TEXTS["tab_prediction"], TEXTS["tab_performance"],
                     TEXTS["tab_portfolio"], TEXTS["tab_backtest"], TEXTS["tab_settings"]])
