@@ -100,6 +100,25 @@ class Database:
                     ensemble_mae    REAL,
                     created_at      TEXT DEFAULT (datetime('now'))
                 );
+                CREATE TABLE IF NOT EXISTS backtest_results (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker              TEXT NOT NULL,
+                    horizon_days        INTEGER NOT NULL,
+                    train_ratio         REAL,
+                    direction_accuracy  REAL,
+                    sharpe_ratio        REAL,
+                    win_rate            REAL,
+                    total_return        REAL,
+                    profit_factor       REAL,
+                    xgb_params_json     TEXT,
+                    prophet_params_json TEXT,
+                    weights_json        TEXT,
+                    source              TEXT DEFAULT 'manual',
+                    created_at          TEXT DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_bt_ticker
+                    ON backtest_results(ticker, horizon_days);
+
                 CREATE TABLE IF NOT EXISTS stock_votes (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     email       TEXT NOT NULL,
@@ -348,3 +367,71 @@ class Database:
             return pd.read_sql_query(
                 "SELECT * FROM error_snapshots WHERE ticker=? ORDER BY snapshot_date",
                 conn, params=(ticker,))
+
+    # ===== バックテスト学習 =====
+    def save_backtest_result(self, ticker, horizon, train_ratio,
+                             direction_accuracy, sharpe_ratio, win_rate,
+                             total_return, profit_factor,
+                             xgb_params=None, prophet_params=None,
+                             weights=None, source="manual"):
+        """バックテスト結果を保存（自動学習用）"""
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO backtest_results
+                (ticker, horizon_days, train_ratio, direction_accuracy,
+                 sharpe_ratio, win_rate, total_return, profit_factor,
+                 xgb_params_json, prophet_params_json, weights_json, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (ticker, horizon, train_ratio, direction_accuracy,
+                  sharpe_ratio, win_rate, total_return, profit_factor,
+                  json.dumps(xgb_params) if xgb_params else None,
+                  json.dumps(prophet_params) if prophet_params else None,
+                  json.dumps(weights) if weights else None,
+                  source))
+
+    def get_best_backtest_params(self, ticker, horizon=None):
+        """最高方向精度のバックテスト結果からXGBoostパラメータを取得"""
+        with self._connect() as conn:
+            if horizon:
+                row = conn.execute("""
+                    SELECT xgb_params_json, direction_accuracy FROM backtest_results
+                    WHERE ticker=? AND horizon_days=?
+                      AND xgb_params_json IS NOT NULL
+                      AND direction_accuracy IS NOT NULL
+                    ORDER BY direction_accuracy DESC LIMIT 1
+                """, (ticker, horizon)).fetchone()
+            else:
+                row = conn.execute("""
+                    SELECT xgb_params_json, direction_accuracy FROM backtest_results
+                    WHERE ticker=?
+                      AND xgb_params_json IS NOT NULL
+                      AND direction_accuracy IS NOT NULL
+                    ORDER BY direction_accuracy DESC LIMIT 1
+                """, (ticker,)).fetchone()
+            if row and row["xgb_params_json"]:
+                return json.loads(row["xgb_params_json"])
+            return None
+
+    def get_backtest_history(self, ticker, limit=20):
+        """バックテスト実行履歴を取得"""
+        with self._connect() as conn:
+            return pd.read_sql_query("""
+                SELECT * FROM backtest_results
+                WHERE ticker=?
+                ORDER BY created_at DESC LIMIT ?
+            """, conn, params=(ticker, limit))
+
+    def get_best_direction_accuracy(self, ticker, horizon=None):
+        """過去最高の方向精度を取得"""
+        with self._connect() as conn:
+            if horizon:
+                row = conn.execute("""
+                    SELECT MAX(direction_accuracy) as best FROM backtest_results
+                    WHERE ticker=? AND horizon_days=?
+                """, (ticker, horizon)).fetchone()
+            else:
+                row = conn.execute("""
+                    SELECT MAX(direction_accuracy) as best FROM backtest_results
+                    WHERE ticker=?
+                """, (ticker,)).fetchone()
+            return float(row["best"]) if row and row["best"] else None

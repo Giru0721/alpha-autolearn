@@ -17,17 +17,17 @@ NEWSAPI_KEY = os.environ.get("NEWSAPI_KEY", "")
 PROPHET_CHANGEPOINT_PRIOR = 0.05
 PROPHET_SEASONALITY_PRIOR = 10.0
 
-# XGBoost defaults (方向精度重視 + 過学習抑制)
+# XGBoost defaults (方向精度重視 + バランス正則化)
 XGBOOST_DEFAULT_PARAMS = {
-    "n_estimators": 800,
-    "max_depth": 4,
-    "learning_rate": 0.015,
-    "subsample": 0.7,
-    "colsample_bytree": 0.5,
-    "reg_alpha": 0.5,
-    "reg_lambda": 3.0,
-    "min_child_weight": 10,
-    "gamma": 0.3,
+    "n_estimators": 500,
+    "max_depth": 5,
+    "learning_rate": 0.03,
+    "subsample": 0.8,
+    "colsample_bytree": 0.7,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "min_child_weight": 5,
+    "gamma": 0.1,
     "objective": "reg:squarederror",
     "random_state": 42,
 }

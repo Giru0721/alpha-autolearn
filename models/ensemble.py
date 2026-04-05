@@ -38,8 +38,10 @@ class EnsemblePredictor:
         pp = self.prophet.get_forecast_point(1)
         prophet_price, prophet_lower, prophet_upper = pp["yhat"], pp["yhat_lower"], pp["yhat_upper"]
 
-        # XGBoost
-        xgb_params = self.db.load_model_params(self.ticker, "xgboost") or XGBOOST_DEFAULT_PARAMS.copy()
+        # XGBoost（バックテスト最良パラメータ → DB保存パラメータ → デフォルト）
+        xgb_params = (self.db.get_best_backtest_params(self.ticker)
+                      or self.db.load_model_params(self.ticker, "xgboost")
+                      or XGBOOST_DEFAULT_PARAMS.copy())
         self.xgboost = XGBoostPredictor(params=xgb_params, horizon=horizon)
         X, y = df[feature_cols].copy(), df[target_col].copy()
         valid = ~y.isna()
@@ -55,22 +57,10 @@ class EnsemblePredictor:
         else:
             xgb_price, xgb_std = current_price, 0.05
 
-        # Ensemble（方向一致度による確信度調整）
+        # Ensemble（加重平均）
         w_p, w_x = self.weights["prophet"], self.weights["xgboost"]
         ensemble_price = w_p * prophet_price + w_x * xgb_price
         predicted_return = (ensemble_price - current_price) / current_price
-
-        # 両モデルの方向が一致 → 確信度高、不一致 → 中立に寄せる
-        prophet_dir = 1 if prophet_price > current_price else -1
-        xgb_dir = 1 if xgb_price > current_price else -1
-        if prophet_dir == xgb_dir:
-            # 方向一致: 予測を強める
-            predicted_return *= 1.1
-            ensemble_price = current_price * (1 + predicted_return)
-        else:
-            # 方向不一致: 中立に寄せる（小さい動きに抑制）
-            predicted_return *= 0.5
-            ensemble_price = current_price * (1 + predicted_return)
 
         xgb_lower = ensemble_price - 2 * xgb_std * current_price
         xgb_upper = ensemble_price + 2 * xgb_std * current_price

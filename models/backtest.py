@@ -1,4 +1,4 @@
-"""バックテストエンジン - Walk-Forward検証"""
+"""バックテストエンジン - Walk-Forward検証 + 自動学習"""
 
 import numpy as np
 import pandas as pd
@@ -11,16 +11,25 @@ from config import (PROPHET_CHANGEPOINT_PRIOR, PROPHET_SEASONALITY_PRIOR,
 
 
 class BacktestEngine:
-    """Walk-Forward バックテストエンジン"""
+    """Walk-Forward バックテストエンジン（自動学習対応）"""
 
     def __init__(self, train_ratio=0.7, horizon=5):
         self.train_ratio = train_ratio
         self.horizon = horizon
         self.results = None
 
-    def run(self, price_df, weights=None, progress_callback=None):
+    def run(self, price_df, weights=None, progress_callback=None,
+            xgb_params=None, prophet_params=None):
+        """バックテスト実行。xgb_params/prophet_params指定でカスタムパラメータ使用可能。"""
         if weights is None:
             weights = ENSEMBLE_INITIAL_WEIGHTS.copy()
+        if xgb_params is None:
+            xgb_params = XGBOOST_DEFAULT_PARAMS.copy()
+        if prophet_params is None:
+            prophet_params = {
+                "changepoint_prior_scale": PROPHET_CHANGEPOINT_PRIOR,
+                "seasonality_prior_scale": PROPHET_SEASONALITY_PRIOR,
+            }
 
         feature_df = add_technical_indicators(price_df)
         df = create_target_variables(feature_df, [self.horizon])
@@ -62,8 +71,10 @@ class BacktestEngine:
             # Prophet
             try:
                 prophet = ProphetPredictor(
-                    changepoint_prior_scale=PROPHET_CHANGEPOINT_PRIOR,
-                    seasonality_prior_scale=PROPHET_SEASONALITY_PRIOR)
+                    changepoint_prior_scale=prophet_params.get(
+                        "changepoint_prior_scale", PROPHET_CHANGEPOINT_PRIOR),
+                    seasonality_prior_scale=prophet_params.get(
+                        "seasonality_prior_scale", PROPHET_SEASONALITY_PRIOR))
                 prophet_df = pd.DataFrame({
                     "ds": train_data.index, "y": train_data["Close"].values})
                 prophet.train(prophet_df)
@@ -73,10 +84,10 @@ class BacktestEngine:
             except Exception:
                 prophet_price = current_price
 
-            # XGBoost
+            # XGBoost（最適化パラメータ対応）
             try:
                 xgb = XGBoostPredictor(
-                    params=XGBOOST_DEFAULT_PARAMS.copy(), horizon=self.horizon)
+                    params=xgb_params.copy(), horizon=self.horizon)
                 X_train = train_data[feature_cols].copy()
                 y_train = train_data[target_col].copy()
                 valid_train = ~y_train.isna()
@@ -90,18 +101,10 @@ class BacktestEngine:
             except Exception:
                 xgb_price = current_price
 
+            # アンサンブル（シンプル加重平均 - 方向精度を破壊する補正なし）
             ensemble_price = (weights["prophet"] * prophet_price +
                               weights["xgboost"] * xgb_price)
             ensemble_return = (ensemble_price - current_price) / current_price
-
-            # 方向一致度補正
-            prophet_dir = 1 if prophet_price > current_price else -1
-            xgb_dir = 1 if xgb_price > current_price else -1
-            if prophet_dir == xgb_dir:
-                ensemble_return *= 1.1
-            else:
-                ensemble_return *= 0.5
-            ensemble_price = current_price * (1 + ensemble_return)
 
             predictions.append({
                 "date": test_point.name,
@@ -129,8 +132,31 @@ class BacktestEngine:
             "train_size": split_idx,
             "test_size": len(test_df),
             "horizon": self.horizon,
+            "xgb_params": xgb_params,
+            "prophet_params": prophet_params,
+            "weights": weights,
         }
         return self.results
+
+    def save_to_db(self, db, ticker):
+        """バックテスト結果をDBに保存し、次回の予測に学習結果を反映"""
+        if self.results is None or "error" in self.results:
+            return
+        metrics = self.results["metrics"]
+        db.save_backtest_result(
+            ticker=ticker,
+            horizon=self.results["horizon"],
+            train_ratio=self.train_ratio,
+            direction_accuracy=metrics["direction_accuracy"],
+            sharpe_ratio=metrics["sharpe_ratio"],
+            win_rate=metrics["win_rate"],
+            total_return=metrics["total_return"],
+            profit_factor=metrics["profit_factor"],
+            xgb_params=self.results.get("xgb_params"),
+            prophet_params=self.results.get("prophet_params"),
+            weights=self.results.get("weights"),
+            source="backtest",
+        )
 
     def _calc_metrics(self, df):
         returns = df["ensemble_return"].values
