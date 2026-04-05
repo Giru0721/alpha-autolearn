@@ -16,6 +16,7 @@ from ui.backtest_ui import render_backtest_page
 from data.fetcher_yfinance import fetch_ohlcv, fetch_ticker_info
 from data.feature_engineer import build_feature_matrix, add_technical_indicators
 from models.ensemble import EnsemblePredictor
+from models.reason_generator import generate_prediction_reason
 from feedback.tracker import PredictionTracker
 from feedback.auto_adjuster import AutoAdjuster
 
@@ -274,6 +275,8 @@ def render_main_content(settings):
             prediction = ensemble.train_and_predict(feature_matrix, settings["horizon"])
             prediction["horizon"] = settings["horizon"]
             prediction["_ticker"] = ticker
+            prediction["reason"] = generate_prediction_reason(
+                feature_matrix, prediction, lang=get_lang())
             st.session_state["last_prediction"] = prediction
             st.session_state["weights"] = ensemble.weights
             st.session_state["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M")
