@@ -91,13 +91,36 @@ def _inject_combined_js(is_logout: bool = False):
             {{name:'keywords', content:'AI株価予測,AI株式予想,機械学習,株式投資,アンサンブル学習,株価分析,Alpha-AutoLearn,プラスアルファ,stock prediction,AI investment'}},
             {{property:'og:title', content:'Alpha-AutoLearn - AI株価予測システム'}},
             {{property:'og:description', content:'AI機械学習で高精度な株価予測。日本株・米国株対応。'}},
-            {{property:'og:type', content:'website'}}
+            {{property:'og:type', content:'website'}},
+            {{name:'apple-mobile-web-app-capable', content:'yes'}},
+            {{name:'apple-mobile-web-app-status-bar-style', content:'black-translucent'}},
+            {{name:'apple-mobile-web-app-title', content:'AutoLearn'}},
+            {{name:'theme-color', content:'#4da6ff'}}
         ];
         metas.forEach(function(m) {{
             var el = pd.createElement('meta');
             Object.keys(m).forEach(function(k) {{ el.setAttribute(k, m[k]); }});
             pd.head.appendChild(el);
         }});
+
+        // ===== PWA: manifest + Service Worker =====
+        if (!pd.querySelector('link[rel="manifest"]')) {{
+            var manifestLink = pd.createElement('link');
+            manifestLink.rel = 'manifest';
+            manifestLink.href = '/_app/static/manifest.json';
+            pd.head.appendChild(manifestLink);
+
+            var appleIcon = pd.createElement('link');
+            appleIcon.rel = 'apple-touch-icon';
+            appleIcon.href = '/_app/static/icon-192.png';
+            pd.head.appendChild(appleIcon);
+        }}
+        try {{
+            if ('serviceWorker' in window.parent.navigator) {{
+                window.parent.navigator.serviceWorker.register('/_app/static/sw.js')
+                    .catch(function() {{}});
+            }}
+        }} catch(e) {{}}
 
         // ===== ログイン保持 (localStorage) =====
         try {{

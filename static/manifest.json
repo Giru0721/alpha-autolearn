@@ -1,0 +1,24 @@
+{
+  "name": "Alpha-AutoLearn - AI株価予測",
+  "short_name": "AutoLearn",
+  "description": "AI機械学習による高精度な株価予測システム",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0E1117",
+  "theme_color": "#4da6ff",
+  "icons": [
+    {
+      "src": "/_app/static/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/_app/static/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
