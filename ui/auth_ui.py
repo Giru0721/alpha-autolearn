@@ -162,10 +162,11 @@ def render_subscription_page():
                         except Exception:
                             app_url = "http://localhost:8501"
                         # セッショントークンをURLに含め、決済後もログイン維持
-                        import hashlib
+                        import hashlib, time
                         from urllib.parse import quote
+                        _day = int(time.time()) // 86400
                         _token = hashlib.sha256(
-                            ("alpha-autolearn-2024" + email).encode()).hexdigest()[:16]
+                            f"alpha-autolearn-2024:{email}:{_day}".encode()).hexdigest()[:16]
                         success_url = f"{app_url}?u={quote(email)}&t={_token}"
                         cancel_url = f"{app_url}?u={quote(email)}&t={_token}"
                         try:
@@ -239,4 +240,5 @@ def render_user_badge():
         for key in checkout_keys:
             st.session_state.pop(key, None)
         st.query_params.clear()
+        st.query_params["logout"] = "1"  # localStorage削除シグナル
         st.rerun()

@@ -45,9 +45,14 @@ def render_backtest_page(ticker: str, period: str, horizon: int):
             st.error(result["error"])
             return
 
+        result["_ticker"] = ticker
+        result["_horizon"] = bt_horizon
         st.session_state["backtest_result"] = result
 
     result = st.session_state.get("backtest_result")
+    if result and result.get("_ticker") != ticker:
+        result = None
+        st.session_state.pop("backtest_result", None)
     if not result:
         st.info(T("no_history"))
         return

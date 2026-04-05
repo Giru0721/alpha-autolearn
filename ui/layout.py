@@ -168,6 +168,8 @@ def render_main_content(settings):
             today = datetime.now().strftime("%Y-%m-%d")
             if guest_date != today:
                 guest_count = 0
+                st.session_state["_guest_predict_count"] = 0
+                st.session_state["_guest_predict_date"] = today
             if guest_count >= 3:
                 st.warning("ゲストの予測上限（3回/日）に達しました。ログインするとより多くの予測が可能です。"
                            if get_lang() == "ja"

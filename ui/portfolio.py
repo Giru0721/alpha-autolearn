@@ -27,6 +27,9 @@ def _get_portfolio_db():
 def render_portfolio_page():
     """ポートフォリオ管理ページ"""
     email = st.session_state.get("user_email", "guest")
+    if email == "guest":
+        st.info("ポートフォリオ機能を使うにはログインしてください。")
+        return
     pdb = _get_portfolio_db()
 
     st.markdown(f"### {T('portfolio_title')}")

@@ -19,6 +19,7 @@ if os.path.exists(_cert_home):
     os.environ.setdefault("CURL_CA_BUNDLE", _cert_home)
     os.environ.setdefault("REQUESTS_CA_BUNDLE", _cert_home)
 
+import time
 import streamlit as st
 from PIL import Image
 from ui.styles import CUSTOM_CSS, VIEWPORT_META
@@ -29,10 +30,24 @@ from feedback.database import Database
 
 _ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
 _SESSION_SECRET = "alpha-autolearn-2024"
+_TOKEN_MAX_AGE_DAYS = 30
 
 
 def _make_token(email: str) -> str:
-    return hashlib.sha256((_SESSION_SECRET + email).encode()).hexdigest()[:16]
+    """日単位のタイムスタンプ付きトークン生成（30日有効）"""
+    day = int(time.time()) // 86400
+    return hashlib.sha256(f"{_SESSION_SECRET}:{email}:{day}".encode()).hexdigest()[:16]
+
+
+def _verify_token(email: str, token: str) -> bool:
+    """トークン検証（過去30日以内に生成されたものを受け入れ）"""
+    current_day = int(time.time()) // 86400
+    for offset in range(_TOKEN_MAX_AGE_DAYS + 1):
+        day = current_day - offset
+        expected = hashlib.sha256(f"{_SESSION_SECRET}:{email}:{day}".encode()).hexdigest()[:16]
+        if token == expected:
+            return True
+    return False
 
 
 def _try_restore_session():
@@ -42,7 +57,7 @@ def _try_restore_session():
     params = st.query_params
     token = params.get("t", "")
     email = params.get("u", "")
-    if email and token and _make_token(email) == token:
+    if email and token and _verify_token(email, token):
         auth = get_auth_manager()
         user = auth.get_user(email)
         if user:
@@ -52,8 +67,99 @@ def _try_restore_session():
 
 def _save_session_to_params(email: str):
     """ログイン後にクエリパラメータにセッション保存"""
+    new_token = _make_token(email)
+    if st.query_params.get("u") == email and st.query_params.get("t") == new_token:
+        return
     st.query_params["u"] = email
-    st.query_params["t"] = _make_token(email)
+    st.query_params["t"] = new_token
+
+
+def _inject_combined_js(is_logout: bool = False):
+    """統合JavaScript: UI非表示 + ログイン保持(localStorage) + SEOメタタグ"""
+    import streamlit.components.v1 as _components
+
+    logout_flag = "true" if is_logout else "false"
+
+    _components.html(f"""
+    <script>
+    (function() {{
+        var pd = window.parent.document;
+
+        // ===== SEO メタタグ =====
+        var metas = [
+            {{name:'description', content:'Alpha-AutoLearn - AI機械学習による株価予測システム。複数のAIモデルを組み合わせたアンサンブル予測で高精度な株価分析を提供。'}},
+            {{name:'keywords', content:'AI株価予測,AI株式予想,機械学習,株式投資,アンサンブル学習,株価分析,Alpha-AutoLearn,プラスアルファ,stock prediction,AI investment'}},
+            {{property:'og:title', content:'Alpha-AutoLearn - AI株価予測システム'}},
+            {{property:'og:description', content:'AI機械学習で高精度な株価予測。日本株・米国株対応。'}},
+            {{property:'og:type', content:'website'}}
+        ];
+        metas.forEach(function(m) {{
+            var el = pd.createElement('meta');
+            Object.keys(m).forEach(function(k) {{ el.setAttribute(k, m[k]); }});
+            pd.head.appendChild(el);
+        }});
+
+        // ===== ログイン保持 (localStorage) =====
+        try {{
+            var url = new URL(window.parent.location);
+            if ({logout_flag}) {{
+                // ログアウト → localStorage 削除
+                window.parent.localStorage.removeItem('alpha_user');
+                window.parent.localStorage.removeItem('alpha_token');
+            }} else if (!url.searchParams.get('u')) {{
+                // URLにユーザー情報なし → localStorageから復元
+                var savedEmail = window.parent.localStorage.getItem('alpha_user');
+                var savedToken = window.parent.localStorage.getItem('alpha_token');
+                if (savedEmail && savedToken) {{
+                    url.searchParams.set('u', savedEmail);
+                    url.searchParams.set('t', savedToken);
+                    window.parent.location.replace(url.toString());
+                    return;
+                }}
+            }} else {{
+                // ログイン中 → localStorageに保存
+                var email = url.searchParams.get('u');
+                var token = url.searchParams.get('t');
+                if (email && token) {{
+                    window.parent.localStorage.setItem('alpha_user', email);
+                    window.parent.localStorage.setItem('alpha_token', token);
+                }}
+            }}
+        }} catch(e) {{}}
+
+        // ===== Streamlit UI非表示 =====
+        function hideStuff() {{
+            try {{
+                pd.querySelectorAll('*').forEach(function(el) {{
+                    var s = window.getComputedStyle(el);
+                    if (s.position === 'fixed') {{
+                        var r = el.getBoundingClientRect();
+                        if (r.bottom > (window.innerHeight - 80) && r.right > (window.innerWidth - 200)) {{
+                            if (!el.getAttribute('data-testid') ||
+                                el.getAttribute('data-testid').indexOf('Sidebar') < 0) {{
+                                el.style.display = 'none';
+                            }}
+                        }}
+                    }}
+                }});
+                pd.querySelectorAll('a[href*="github"]').forEach(function(el) {{
+                    el.style.display = 'none';
+                }});
+                pd.querySelectorAll('[data-testid="stToolbarActions"] > div').forEach(function(el) {{
+                    if (el.querySelector('a') || el.innerHTML.indexOf('github') >= 0 ||
+                        el.innerHTML.indexOf('fork') >= 0) {{
+                        el.style.display = 'none';
+                    }}
+                }});
+            }} catch(e) {{}}
+        }}
+        setTimeout(hideStuff, 500);
+        setTimeout(hideStuff, 1500);
+        setTimeout(hideStuff, 4000);
+        setInterval(hideStuff, 10000);
+    }})();
+    </script>
+    """, height=0)
 
 
 def _handle_checkout_return():
@@ -68,25 +174,15 @@ def _handle_checkout_return():
     auth = get_auth_manager()
     upgraded = False
 
-    # 方法1: Stripe API で検証（最も安全）
+    # Stripe API で検証（安全な方法のみ使用）
     result = auth.verify_checkout_session(session_id)
     if result:
         upgraded = True
         email = result["email"]
     else:
-        # 方法2: URLパラメータから即時反映
-        # Stripeは決済成功時のみ success_url にリダイレクトするので信頼可能
-        plan_key = st.query_params.get("plan", "")
-        pay_token = st.query_params.get("pt", "")
+        # Stripe検証失敗 → ログに記録（手動同期ボタンで対応可能）
+        print(f"[Stripe] checkout session verification failed: {session_id}")
         email = st.query_params.get("u", "")
-        if email and plan_key and pay_token:
-            expected = hashlib.sha256(
-                f"{email}:{plan_key}:alpha-pay".encode()).hexdigest()[:12]
-            if pay_token == expected:
-                from datetime import datetime, timedelta
-                expires = (datetime.now() + timedelta(days=31)).isoformat()
-                auth._update_plan(email, plan_key, expires_at=expires)
-                upgraded = True
 
     if upgraded:
         st.session_state["_checkout_verified"] = session_id
@@ -122,50 +218,23 @@ def main():
     st.markdown(VIEWPORT_META, unsafe_allow_html=True)
     st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-    # 右下 Streamlit Cloud バッジを JS で非表示
-    import streamlit.components.v1 as _components
-    _components.html("""
-    <script>
-    function hideStuff() {
-        try {
-            var pd = window.parent.document;
-            // 右下の固定バッジを非表示
-            pd.querySelectorAll('*').forEach(function(el) {
-                var s = window.getComputedStyle(el);
-                if (s.position === 'fixed') {
-                    var r = el.getBoundingClientRect();
-                    if (r.bottom > (window.innerHeight - 80) && r.right > (window.innerWidth - 200)) {
-                        if (!el.getAttribute('data-testid') ||
-                            el.getAttribute('data-testid').indexOf('Sidebar') < 0) {
-                            el.style.display = 'none';
-                        }
-                    }
-                }
-            });
-            // GitHubアイコン（Fork）を非表示
-            pd.querySelectorAll('a[href*="github"]').forEach(function(el) {
-                el.style.display = 'none';
-            });
-            pd.querySelectorAll('[data-testid="stToolbarActions"] > div').forEach(function(el) {
-                if (el.querySelector('a') || el.innerHTML.indexOf('github') >= 0 ||
-                    el.innerHTML.indexOf('fork') >= 0) {
-                    el.style.display = 'none';
-                }
-            });
-        } catch(e) {}
-    }
-    setTimeout(hideStuff, 500);
-    setTimeout(hideStuff, 1500);
-    setTimeout(hideStuff, 4000);
-    setInterval(hideStuff, 10000);
-    </script>
-    """, height=0)
+    # ログアウト信号チェック
+    _is_logout = st.query_params.get("logout") == "1"
+    if _is_logout:
+        try:
+            del st.query_params["logout"]
+        except Exception:
+            pass
+
+    # 統合JS: UI非表示 + ログイン保持 + SEOメタタグ
+    _inject_combined_js(is_logout=_is_logout)
 
     if "db" not in st.session_state:
         st.session_state["db"] = Database()
 
-    # セッション復元
-    _try_restore_session()
+    # セッション復元（ログアウト直後はスキップ）
+    if not _is_logout:
+        _try_restore_session()
 
     # Stripe決済完了後のプラン反映
     _handle_checkout_return()
