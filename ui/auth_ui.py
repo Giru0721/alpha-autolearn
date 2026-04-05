@@ -12,19 +12,20 @@ def get_auth_manager():
 
 
 def render_language_selector():
-    """言語切替セレクタ"""
+    """言語切替セレクタ（6言語対応）"""
+    from ui.i18n import SUPPORTED_LANGUAGES
     lang = get_lang()
-    cols = st.columns([1, 1])
-    with cols[0]:
-        if st.button("🇯🇵 日本語", use_container_width=True,
-                     disabled=(lang == "ja"), key="lang_ja"):
-            set_lang("ja")
-            st.rerun()
-    with cols[1]:
-        if st.button("🇺🇸 English", use_container_width=True,
-                     disabled=(lang == "en"), key="lang_en"):
-            set_lang("en")
-            st.rerun()
+    flags = {"ja": "\U0001f1ef\U0001f1f5", "en": "\U0001f1fa\U0001f1f8",
+             "zh": "\U0001f1e8\U0001f1f3", "ko": "\U0001f1f0\U0001f1f7",
+             "es": "\U0001f1ea\U0001f1f8", "pt": "\U0001f1e7\U0001f1f7"}
+    cols = st.columns(3)
+    for idx, (code, label) in enumerate(SUPPORTED_LANGUAGES):
+        with cols[idx % 3]:
+            flag = flags.get(code, "")
+            if st.button(f"{flag} {label}", use_container_width=True,
+                         disabled=(lang == code), key=f"lang_{code}"):
+                set_lang(code)
+                st.rerun()
 
 
 def render_auth_page():
@@ -166,7 +167,7 @@ def render_subscription_page():
                         from urllib.parse import quote
                         _day = int(time.time()) // 86400
                         _token = hashlib.sha256(
-                            f"alpha-autolearn-2024:{email}:{_day}".encode()).hexdigest()[:16]
+                            f"prophit-ai-2024:{email}:{_day}".encode()).hexdigest()[:16]
                         success_url = f"{app_url}?u={quote(email)}&t={_token}"
                         cancel_url = f"{app_url}?u={quote(email)}&t={_token}"
                         try:

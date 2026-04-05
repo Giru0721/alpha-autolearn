@@ -298,7 +298,7 @@ class AuthManager:
                 "price_data": {
                     "currency": "jpy",
                     "product_data": {
-                        "name": f"Alpha-AutoLearn {plan.get('name_en', plan['name'])}（1ヶ月）",
+                        "name": f"Prophit AI {plan.get('name_en', plan['name'])}",
                     },
                     "unit_amount": plan["price"],
                 },

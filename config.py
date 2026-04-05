@@ -1,4 +1,4 @@
-"""Alpha-AutoLearn グローバル設定"""
+"""Prophit AI グローバル設定"""
 
 import os
 

@@ -1,7 +1,7 @@
 {
-  "name": "Alpha-AutoLearn - AI株価予測",
-  "short_name": "AutoLearn",
-  "description": "AI機械学習による高精度な株価予測システム",
+  "name": "Prophit AI - AI Stock Prediction",
+  "short_name": "Prophit AI",
+  "description": "AI-powered stock prediction with Prophet + XGBoost ensemble forecasting",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

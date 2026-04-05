@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Alpha-AutoLearn AI株価予測システム
+title Prophit AI - Stock Prediction
 
 echo ========================================
-echo   Alpha-AutoLearn AI株価予測システム
+echo   Prophit AI - AI Stock Prediction
 echo ========================================
 echo.
 

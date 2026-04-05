@@ -1,4 +1,4 @@
-"""Alpha-AutoLearn - AI株価予測システム メインエントリーポイント"""
+"""Prophit AI - AI Stock Prediction System"""
 
 import sys
 import os
@@ -29,7 +29,7 @@ from ui.i18n import TEXTS
 from feedback.database import Database
 
 _ICON_PATH = os.path.join(os.path.dirname(__file__), "assets", "icon.png")
-_SESSION_SECRET = "alpha-autolearn-2024"
+_SESSION_SECRET = "prophit-ai-2024"
 _TOKEN_MAX_AGE_DAYS = 30
 
 
@@ -87,14 +87,14 @@ def _inject_combined_js(is_logout: bool = False):
 
         // ===== SEO メタタグ =====
         var metas = [
-            {{name:'description', content:'Alpha-AutoLearn - AI機械学習による株価予測システム。複数のAIモデルを組み合わせたアンサンブル予測で高精度な株価分析を提供。'}},
-            {{name:'keywords', content:'AI株価予測,AI株式予想,機械学習,株式投資,アンサンブル学習,株価分析,Alpha-AutoLearn,プラスアルファ,stock prediction,AI investment'}},
-            {{property:'og:title', content:'Alpha-AutoLearn - AI株価予測システム'}},
-            {{property:'og:description', content:'AI機械学習で高精度な株価予測。日本株・米国株対応。'}},
+            {{name:'description', content:'Prophit AI - AI-powered stock prediction system. Ensemble forecasting with Prophet + XGBoost for accurate market analysis.'}},
+            {{name:'keywords', content:'Prophit AI,AI stock prediction,stock forecast,machine learning,ensemble learning,stock analysis,AI investment,株価予測,AI予測'}},
+            {{property:'og:title', content:'Prophit AI - AI Stock Prediction'}},
+            {{property:'og:description', content:'AI-powered stock prediction with Prophet + XGBoost ensemble. Supports global markets.'}},
             {{property:'og:type', content:'website'}},
             {{name:'apple-mobile-web-app-capable', content:'yes'}},
             {{name:'apple-mobile-web-app-status-bar-style', content:'black-translucent'}},
-            {{name:'apple-mobile-web-app-title', content:'AutoLearn'}},
+            {{name:'apple-mobile-web-app-title', content:'Prophit AI'}},
             {{name:'theme-color', content:'#4da6ff'}}
         ];
         metas.forEach(function(m) {{
