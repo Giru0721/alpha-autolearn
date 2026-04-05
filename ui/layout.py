@@ -20,6 +20,21 @@ from feedback.tracker import PredictionTracker
 from feedback.auto_adjuster import AutoAdjuster
 
 
+def _vote_remaining() -> str:
+    """次の9:00 JSTまでの残り時間を返す"""
+    from datetime import timezone, timedelta
+    _JST = timezone(timedelta(hours=9))
+    now = datetime.now(_JST)
+    # 次の9:00 JSTを計算
+    next_reset = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    if now.hour >= 9:
+        next_reset += timedelta(days=1)
+    diff = next_reset - now
+    h, rem = divmod(int(diff.total_seconds()), 3600)
+    m = rem // 60
+    return f"{h}h {m:02d}m"
+
+
 def _render_vote_section(db, ticker: str, info: dict):
     """銘柄の上がる/下がる投票UI"""
     lang = get_lang()
@@ -30,6 +45,7 @@ def _render_vote_section(db, ticker: str, info: dict):
     up_pct = summary["up_pct"]
     down_pct = summary["down_pct"]
     is_guest = (email == "guest")
+    remaining = _vote_remaining()
 
     # バー幅
     up_w = max(up_pct, 8) if total > 0 else 50
@@ -37,13 +53,15 @@ def _render_vote_section(db, ticker: str, info: dict):
     s = 100 / (up_w + down_w)
     up_w, down_w = up_w * s, down_w * s
 
-    # components.html で確実にレンダリング
     import streamlit.components.v1 as components
     bar_html = f"""
 <div style="background:#0d1117;border:1px solid #21262d;border-radius:14px;padding:20px;font-family:sans-serif;">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
 <span style="font-size:0.95em;font-weight:700;color:#e6edf3;letter-spacing:1px;">MARKET SENTIMENT</span>
+<div style="display:flex;gap:8px;align-items:center;">
+<span style="font-size:0.72em;color:#484f58;">RESET {remaining}</span>
 <span style="font-size:0.75em;color:#6e7681;background:#161b22;padding:2px 10px;border-radius:12px;">{total} votes</span>
+</div>
 </div>
 <div style="display:flex;gap:2px;border-radius:10px;overflow:hidden;height:40px;margin-bottom:10px;">
 <div style="width:{up_w:.1f}%;background:linear-gradient(135deg,#00d26a,#00a854);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1em;color:#fff;">{up_pct:.0f}%</div>

@@ -3,10 +3,21 @@
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone, timedelta
 
 import pandas as pd
 
 from config import DATABASE_PATH, ENSEMBLE_INITIAL_WEIGHTS
+
+_JST = timezone(timedelta(hours=9))
+
+
+def trading_session_date() -> str:
+    """現在の取引セッション日を返す（東証9:00 JSTでリセット）"""
+    now = datetime.now(_JST)
+    if now.hour < 9:
+        now -= timedelta(days=1)
+    return now.strftime("%Y-%m-%d")
 
 
 class Database:
@@ -102,21 +113,23 @@ class Database:
                     ON stock_votes(ticker, vote_date);
             """)
 
-    # ===== 投票機能 =====
+    # ===== 投票機能（東証9:00 JSTでリセット）=====
     def cast_vote(self, email: str, ticker: str, direction: str) -> bool:
-        """投票を記録（1日1銘柄1票）。成功でTrue。"""
+        """投票を記録（取引セッション毎に1銘柄1票）。"""
+        today = trading_session_date()
         with self._connect() as conn:
             try:
                 conn.execute("""
                     INSERT OR REPLACE INTO stock_votes (email, ticker, vote_date, direction)
-                    VALUES (?, ?, date('now'), ?)
-                """, (email.lower(), ticker, direction))
+                    VALUES (?, ?, ?, ?)
+                """, (email.lower(), ticker, today, direction))
                 return True
             except Exception:
                 return False
 
     def get_vote_summary(self, ticker: str) -> dict:
-        """本日の投票結果を取得"""
+        """現在の取引セッションの投票結果を取得"""
+        today = trading_session_date()
         with self._connect() as conn:
             row = conn.execute("""
                 SELECT
@@ -124,8 +137,8 @@ class Database:
                     SUM(CASE WHEN direction='up' THEN 1 ELSE 0 END) as up_count,
                     SUM(CASE WHEN direction='down' THEN 1 ELSE 0 END) as down_count
                 FROM stock_votes
-                WHERE ticker=? AND vote_date=date('now')
-            """, (ticker,)).fetchone()
+                WHERE ticker=? AND vote_date=?
+            """, (ticker, today)).fetchone()
             total = row["total"] or 0
             up = row["up_count"] or 0
             down = row["down_count"] or 0
@@ -138,12 +151,13 @@ class Database:
             }
 
     def get_user_vote(self, email: str, ticker: str) -> str | None:
-        """ユーザーの本日の投票を取得"""
+        """ユーザーの現在セッションの投票を取得"""
+        today = trading_session_date()
         with self._connect() as conn:
             row = conn.execute("""
                 SELECT direction FROM stock_votes
-                WHERE email=? AND ticker=? AND vote_date=date('now')
-            """, (email.lower(), ticker)).fetchone()
+                WHERE email=? AND ticker=? AND vote_date=?
+            """, (email.lower(), ticker, today)).fetchone()
             return row["direction"] if row else None
 
     def save_prediction(self, ticker, prediction_date, target_date,
