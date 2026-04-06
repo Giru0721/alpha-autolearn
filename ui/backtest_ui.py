@@ -28,7 +28,7 @@ def render_backtest_page(ticker: str, period: str, horizon: int):
     with c1:
         bt_ratio = st.slider(T("train_ratio"), 0.5, 0.9, 0.7, 0.05)
     with c2:
-        bt_horizon = st.number_input(T("horizon_label"), 1, 60, horizon, key="bt_horizon")
+        bt_horizon = st.number_input(T("horizon_label"), 1, 60, min(horizon, 60), key="bt_horizon")
 
     # --- DB最良パラメータ表示 ---
     prev_best_acc = db.get_best_direction_accuracy(ticker, bt_horizon)
