@@ -14,18 +14,19 @@ from config import DATABASE_PATH, ADMIN_EMAIL as _ADMIN_EMAIL, ADMIN_PASSWORD as
 
 def _get_admin_creds():
     """管理者情報を環境変数 → Streamlit Secrets から取得"""
-    email = _ADMIN_EMAIL
-    password = _ADMIN_PASSWORD
+    # 環境変数を直接読む（モジュール変数はimport時に固定されるため）
+    email = os.environ.get("ADMIN_EMAIL", "") or _ADMIN_EMAIL
+    password = os.environ.get("ADMIN_PASSWORD", "") or _ADMIN_PASSWORD
     if not email:
         try:
             import streamlit as st
-            email = st.secrets.get("ADMIN_EMAIL", "") or st.secrets["ADMIN_EMAIL"]
+            email = st.secrets.get("ADMIN_EMAIL", "")
         except Exception:
             pass
     if not password:
         try:
             import streamlit as st
-            password = st.secrets.get("ADMIN_PASSWORD", "") or st.secrets["ADMIN_PASSWORD"]
+            password = st.secrets.get("ADMIN_PASSWORD", "")
         except Exception:
             pass
     return email, password
