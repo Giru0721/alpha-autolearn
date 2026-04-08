@@ -14,21 +14,26 @@ from config import DATABASE_PATH, ADMIN_EMAIL as _ADMIN_EMAIL, ADMIN_PASSWORD as
 
 def _get_admin_creds():
     """管理者情報を環境変数 → Streamlit Secrets から取得"""
-    # 環境変数を直接読む（モジュール変数はimport時に固定されるため）
-    email = os.environ.get("ADMIN_EMAIL", "") or _ADMIN_EMAIL
-    password = os.environ.get("ADMIN_PASSWORD", "") or _ADMIN_PASSWORD
+    email = os.environ.get("ADMIN_EMAIL", "").strip()
+    password = os.environ.get("ADMIN_PASSWORD", "").strip()
+    if not email:
+        email = (_ADMIN_EMAIL or "").strip()
+    if not password:
+        password = (_ADMIN_PASSWORD or "").strip()
     if not email:
         try:
             import streamlit as st
-            email = st.secrets.get("ADMIN_EMAIL", "")
+            email = (st.secrets.get("ADMIN_EMAIL", "") or "").strip()
         except Exception:
             pass
     if not password:
         try:
             import streamlit as st
-            password = st.secrets.get("ADMIN_PASSWORD", "")
+            password = (st.secrets.get("ADMIN_PASSWORD", "") or "").strip()
         except Exception:
             pass
+    print(f"[AUTH] Admin creds found: email={'YES' if email else 'NO'}, password={'YES' if password else 'NO'}")
+    return email, password
     return email, password
 
 # Stripe設定（環境変数から取得）
@@ -122,21 +127,28 @@ class AuthManager:
         """管理者アカウントの自動作成・パスワード同期"""
         admin_email, admin_password = _get_admin_creds()
         if not admin_email or not admin_password:
+            print(f"[AUTH] Skipping admin setup: email={bool(admin_email)}, pw={bool(admin_password)}")
             return
+        admin_email = admin_email.strip().lower()
         user = self.get_user(admin_email)
+        # 常にパスワードを再設定（確実に同期）
+        salt = secrets.token_hex(16)
+        pw_hash = _hash_password(admin_password, salt)
         if not user:
-            self.register(admin_email, admin_password, "管理者")
-            with self._connect() as conn:
-                conn.execute("UPDATE users SET role='admin', plan='admin' WHERE email=?",
-                             (admin_email.lower(),))
-        else:
-            salt = secrets.token_hex(16)
-            pw_hash = _hash_password(admin_password, salt)
+            self.register(admin_email, admin_password, "Admin")
             with self._connect() as conn:
                 conn.execute(
                     "UPDATE users SET role='admin', plan='admin', "
                     "password_hash=?, salt=? WHERE email=?",
-                    (pw_hash, salt, admin_email.lower()))
+                    (pw_hash, salt, admin_email))
+            print(f"[AUTH] Admin created: {admin_email}")
+        else:
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE users SET role='admin', plan='admin', "
+                    "password_hash=?, salt=? WHERE email=?",
+                    (pw_hash, salt, admin_email))
+            print(f"[AUTH] Admin password synced: {admin_email}")
 
     def register(self, email: str, password: str, display_name: str = "") -> dict:
         salt = secrets.token_hex(16)
