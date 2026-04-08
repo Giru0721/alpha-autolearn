@@ -168,15 +168,24 @@ class AuthManager:
                 return {"success": False, "message": "このメールアドレスは既に登録されています"}
 
     def login(self, email: str, password: str) -> dict:
+        clean_email = email.lower().strip()
+        clean_pw = password.strip()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM users WHERE email=?", (email.lower().strip(),)
+                "SELECT * FROM users WHERE email=?", (clean_email,)
             ).fetchone()
-            if not row:
-                return {"success": False, "message": "メールアドレスまたはパスワードが正しくありません"}
-            if _hash_password(password, row["salt"]) != row["password_hash"]:
-                return {"success": False, "message": "メールアドレスまたはパスワードが正しくありません"}
-            return {"success": True, "user": dict(row)}
+            if row and _hash_password(clean_pw, row["salt"]) == row["password_hash"]:
+                return {"success": True, "user": dict(row)}
+        # フォールバック: 環境変数の管理者情報と直接照合
+        admin_email, admin_password = _get_admin_creds()
+        if (admin_email and admin_password
+                and clean_email == admin_email.lower().strip()
+                and clean_pw == admin_password.strip()):
+            self._ensure_admin()
+            user = self.get_user(clean_email)
+            if user:
+                return {"success": True, "user": dict(user)}
+        return {"success": False, "message": "メールアドレスまたはパスワードが正しくありません"}
 
     def get_user(self, email: str) -> dict | None:
         with self._connect() as conn:
