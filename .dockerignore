@@ -1,0 +1,8 @@
+.venv
+__pycache__
+*.pyc
+*.db
+.git
+.gitignore
+*.md
+assets/generate_logo.py

@@ -2,8 +2,9 @@
 
 import os
 
-# Database
-DATABASE_PATH = os.path.join(os.path.dirname(__file__), "alpha_autolearn.db")
+# Database（Render永続ディスク対応）
+_DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
+DATABASE_PATH = os.path.join(_DATA_DIR, "prophit_ai.db")
 
 # Default ticker / period
 DEFAULT_TICKER = "7203.T"
