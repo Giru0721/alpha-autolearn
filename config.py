@@ -80,8 +80,14 @@ PERIOD_OPTIONS = {
 
 # Admin設定
 # 管理者設定（Streamlit Cloud Secrets または環境変数で設定してください）
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+def _clean(v: str) -> str:
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        v = v[1:-1].strip()
+    return v
+
+ADMIN_EMAIL = _clean(os.environ.get("ADMIN_EMAIL", ""))
+ADMIN_PASSWORD = _clean(os.environ.get("ADMIN_PASSWORD", ""))
 
 # メール通知設定 (SMTP)
 SMTP_HOST = os.environ.get("SMTP_HOST", "")

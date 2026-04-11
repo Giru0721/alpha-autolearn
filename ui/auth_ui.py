@@ -33,67 +33,65 @@ def render_auth_page():
     render_language_selector()
     st.markdown("### 🔐 " + ("ログイン / 新規登録" if get_lang() == "ja" else "Login / Register"))
 
-    # デバッグ: 管理者設定の検出状態
-    import os as _os
-    _ae = _os.environ.get("ADMIN_EMAIL", "")
-    _ap = _os.environ.get("ADMIN_PASSWORD", "")
-    if _ae and _ap:
-        st.caption(f"Admin: {_ae[:3]}***@*** (configured)")
-    else:
-        st.warning(f"Admin env vars not found. ADMIN_EMAIL={'SET' if _ae else 'EMPTY'}, ADMIN_PASSWORD={'SET' if _ap else 'EMPTY'}")
-
     tab_login, tab_register = st.tabs(
         ["ログイン" if get_lang() == "ja" else "Login",
          "新規登録" if get_lang() == "ja" else "Register"])
 
     with tab_login:
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Password", type="password", key="login_pw")
-        if st.button("Login" if get_lang() == "en" else "ログイン",
-                     type="primary", use_container_width=True, key="login_btn"):
-            if not email or not password:
-                st.error("Enter email and password")
-                return
-            auth = get_auth_manager()
-            result = auth.login(email, password)
-            if result["success"]:
-                st.session_state["user_email"] = email.lower().strip()
-                st.session_state["user"] = result["user"]
-                st.rerun()
-            else:
-                # デバッグ: 失敗理由
-                _ae2, _ap2 = _os.environ.get("ADMIN_EMAIL", ""), _os.environ.get("ADMIN_PASSWORD", "")
-                st.error(result["message"])
-                st.caption(f"Debug: input='{email.lower().strip()}', env='{_ae2.lower().strip() if _ae2 else 'NONE'}', match={email.lower().strip() == _ae2.lower().strip() if _ae2 else False}")
+        with st.form("login_form"):
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button(
+                "Login" if get_lang() == "en" else "ログイン",
+                type="primary", use_container_width=True)
+            if submitted:
+                if not email or not password:
+                    st.error("Enter email and password"
+                             if get_lang() == "en"
+                             else "メールアドレスとパスワードを入力してください")
+                else:
+                    auth = get_auth_manager()
+                    result = auth.login(email, password)
+                    if result["success"]:
+                        st.session_state["user_email"] = email.lower().strip()
+                        st.session_state["user"] = result["user"]
+                        st.rerun()
+                    else:
+                        st.error(result["message"])
 
     with tab_register:
-        new_email = st.text_input("Email", key="reg_email")
-        new_name = st.text_input("Display Name" if get_lang() == "en" else "表示名（任意）",
-                                 key="reg_name")
-        new_pw = st.text_input("Password (8+)" if get_lang() == "en" else "パスワード（8文字以上）",
-                               type="password", key="reg_pw")
-        new_pw2 = st.text_input("Confirm" if get_lang() == "en" else "パスワード確認",
-                                type="password", key="reg_pw2")
-        if st.button("Register" if get_lang() == "en" else "無料で登録",
-                     type="primary", use_container_width=True, key="reg_btn"):
-            if not new_email or not new_pw:
-                st.error("Enter email and password")
-                return
-            if len(new_pw) < 8:
-                st.error("Password must be 8+ characters" if get_lang() == "en"
-                         else "パスワードは8文字以上にしてください")
-                return
-            if new_pw != new_pw2:
-                st.error("Passwords don't match" if get_lang() == "en"
-                         else "パスワードが一致しません")
-                return
-            auth = get_auth_manager()
-            result = auth.register(new_email, new_pw, new_name)
-            if result["success"]:
-                st.success("Registered! Please login." if get_lang() == "en"
-                           else "登録完了！ログインしてください。")
-            else:
-                st.error(result["message"])
+        with st.form("register_form"):
+            new_email = st.text_input("Email")
+            new_name = st.text_input(
+                "Display Name" if get_lang() == "en" else "表示名（任意）")
+            new_pw = st.text_input(
+                "Password (8+)" if get_lang() == "en" else "パスワード（8文字以上）",
+                type="password")
+            new_pw2 = st.text_input(
+                "Confirm" if get_lang() == "en" else "パスワード確認",
+                type="password")
+            reg_submitted = st.form_submit_button(
+                "Register" if get_lang() == "en" else "無料で登録",
+                type="primary", use_container_width=True)
+            if reg_submitted:
+                if not new_email or not new_pw:
+                    st.error("Enter email and password"
+                             if get_lang() == "en"
+                             else "メールアドレスとパスワードを入力してください")
+                elif len(new_pw) < 8:
+                    st.error("Password must be 8+ characters" if get_lang() == "en"
+                             else "パスワードは8文字以上にしてください")
+                elif new_pw != new_pw2:
+                    st.error("Passwords don't match" if get_lang() == "en"
+                             else "パスワードが一致しません")
+                else:
+                    auth = get_auth_manager()
+                    result = auth.register(new_email, new_pw, new_name)
+                    if result["success"]:
+                        st.success("Registered! Please login." if get_lang() == "en"
+                                   else "登録完了！ログインしてください。")
+                    else:
+                        st.error(result["message"])
 
     st.divider()
     if st.button("Continue as Guest" if get_lang() == "en" else "ゲストとして続ける（制限あり）",
