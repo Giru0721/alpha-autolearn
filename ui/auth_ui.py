@@ -32,6 +32,16 @@ def render_auth_page():
     """ログイン/新規登録ページ"""
     render_language_selector()
     st.markdown("### 🔐 " + ("ログイン / 新規登録" if get_lang() == "ja" else "Login / Register"))
+
+    # デバッグ: 管理者設定の検出状態
+    import os as _os
+    _ae = _os.environ.get("ADMIN_EMAIL", "")
+    _ap = _os.environ.get("ADMIN_PASSWORD", "")
+    if _ae and _ap:
+        st.caption(f"Admin: {_ae[:3]}***@*** (configured)")
+    else:
+        st.warning(f"Admin env vars not found. ADMIN_EMAIL={'SET' if _ae else 'EMPTY'}, ADMIN_PASSWORD={'SET' if _ap else 'EMPTY'}")
+
     tab_login, tab_register = st.tabs(
         ["ログイン" if get_lang() == "ja" else "Login",
          "新規登録" if get_lang() == "ja" else "Register"])
@@ -51,7 +61,10 @@ def render_auth_page():
                 st.session_state["user"] = result["user"]
                 st.rerun()
             else:
+                # デバッグ: 失敗理由
+                _ae2, _ap2 = _os.environ.get("ADMIN_EMAIL", ""), _os.environ.get("ADMIN_PASSWORD", "")
                 st.error(result["message"])
+                st.caption(f"Debug: input='{email.lower().strip()}', env='{_ae2.lower().strip() if _ae2 else 'NONE'}', match={email.lower().strip() == _ae2.lower().strip() if _ae2 else False}")
 
     with tab_register:
         new_email = st.text_input("Email", key="reg_email")
